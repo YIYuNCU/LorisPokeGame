@@ -76,9 +76,7 @@ public class NetworkSettingsViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _ipAddress, value))
-            {
                 SaveConfig();
-            }
         }
     }
 
@@ -89,9 +87,7 @@ public class NetworkSettingsViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _portText, value))
-            {
                 SaveConfig();
-            }
         }
     }
 
@@ -103,9 +99,7 @@ public class NetworkSettingsViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _serverUrl, value))
-            {
                 SaveConfig();
-            }
         }
     }
 
@@ -114,6 +108,18 @@ public class NetworkSettingsViewModel : ViewModelBase
     {
         get => _roomCode;
         set => SetProperty(ref _roomCode, value);
+    }
+
+    // ========== 列表服务器 ==========
+    private string _masterUrl = "ws://127.0.0.1:8000/ws/lobby";
+    public string MasterUrl
+    {
+        get => _masterUrl;
+        set
+        {
+            if (SetProperty(ref _masterUrl, value))
+                SaveConfig();
+        }
     }
 
     // ========== 房间可见性（创建房间时） ==========
@@ -137,7 +143,20 @@ public class NetworkSettingsViewModel : ViewModelBase
 
     public bool HasRooms => _roomList.Count > 0;
 
-    // ========== 页面切换 ==========
+    // ========== 服务器浏览器 ==========
+    private readonly ObservableCollection<ServerBrowserEntry> _serverBrowserList = new();
+    public ReadOnlyObservableCollection<ServerBrowserEntry> ServerBrowserList { get; }
+
+    private bool _isLoadingServers;
+    public bool IsLoadingServers
+    {
+        get => _isLoadingServers;
+        set => SetProperty(ref _isLoadingServers, value);
+    }
+
+    public bool HasServers => _serverBrowserList.Count > 0;
+
+    // ========== 页面切换（三级：主页 / 大厅 / 服务器浏览器） ==========
     private bool _isShowingLobby;
     public bool IsShowingLobby
     {
@@ -147,14 +166,35 @@ public class NetworkSettingsViewModel : ViewModelBase
             if (SetProperty(ref _isShowingLobby, value))
             {
                 OnPropertyChanged(nameof(BackButtonText));
+                OnPropertyChanged(nameof(IsShowingServerBrowser));
+                OnPropertyChanged(nameof(IsShowingMainPage));
             }
         }
     }
 
-    public string BackButtonText => _isShowingLobby ? "← 返回" : "← 返回主页";
+    private bool _isShowingServerBrowser;
+    public bool IsShowingServerBrowser
+    {
+        get => _isShowingServerBrowser;
+        set
+        {
+            if (SetProperty(ref _isShowingServerBrowser, value))
+            {
+                OnPropertyChanged(nameof(BackButtonText));
+                OnPropertyChanged(nameof(IsShowingLobby));
+                OnPropertyChanged(nameof(IsShowingMainPage));
+            }
+        }
+    }
 
-    // ========== 大厅适配器 ==========
+    public string BackButtonText => _isShowingLobby || _isShowingServerBrowser ? "← 返回" : "← 返回主页";
+
+    /// <summary>是否显示主页面（非大厅且非服务器浏览器时）</summary>
+    public bool IsShowingMainPage => !_isShowingLobby && !_isShowingServerBrowser;
+
+    // ========== 适配器 ==========
     private WebSocketNetworkAdapter? _lobbyAdapter;
+    private WebSocketNetworkAdapter? _serverBrowserAdapter;
 
     // ========== 命令 ==========
     public ICommand BackCommand { get; }
@@ -163,6 +203,9 @@ public class NetworkSettingsViewModel : ViewModelBase
     public ICommand ShowLobbyCommand { get; }
     public ICommand RefreshRoomListCommand { get; }
     public ICommand JoinSelectedRoomCommand { get; }
+    public ICommand BrowseServersCommand { get; }
+    public ICommand RefreshServerListCommand { get; }
+    public ICommand SelectServerCommand { get; }
 
     public NetworkSettingsViewModel(
         GameMode mode,
@@ -176,10 +219,12 @@ public class NetworkSettingsViewModel : ViewModelBase
         // 加载持久化配置
         _config = GameConfig.Load();
         _serverUrl = _config.ServerUrl;
+        _masterUrl = _config.MasterUrl;
         _ipAddress = _config.P2pIpAddress;
         _portText = _config.P2pPort.ToString();
 
         RoomList = new ReadOnlyObservableCollection<RoomListEntry>(_roomList);
+        ServerBrowserList = new ReadOnlyObservableCollection<ServerBrowserEntry>(_serverBrowserList);
 
         BackCommand = new RelayCommand(_ => OnBack());
         CreateRoomCommand = new RelayCommand(_ => _ = OnConnect(isCreate: true), _ => !IsConnecting);
@@ -187,6 +232,9 @@ public class NetworkSettingsViewModel : ViewModelBase
         ShowLobbyCommand = new RelayCommand(_ => _ = EnterLobby(), _ => IsServerMode && !IsConnecting);
         RefreshRoomListCommand = new RelayCommand(_ => _ = LoadRoomList(), _ => !IsLoadingRooms);
         JoinSelectedRoomCommand = new RelayCommand(param => JoinRoomByCode(param?.ToString() ?? ""), _ => IsServerMode);
+        BrowseServersCommand = new RelayCommand(_ => _ = EnterServerBrowser(), _ => IsServerMode && !IsConnecting);
+        RefreshServerListCommand = new RelayCommand(_ => _ = LoadServerList(), _ => !IsLoadingServers);
+        SelectServerCommand = new RelayCommand(param => SelectServer(param?.ToString() ?? ""), _ => IsServerMode);
     }
 
     private async Task OnConnect(bool isCreate)
@@ -324,12 +372,14 @@ public class NetworkSettingsViewModel : ViewModelBase
     {
         if (_isShowingLobby)
         {
-            // 从大厅返回主页面
             IsShowingLobby = false;
+        }
+        else if (_isShowingServerBrowser)
+        {
+            IsShowingServerBrowser = false;
         }
         else
         {
-            // 返回模式选择
             _backToMenu();
         }
     }
@@ -393,12 +443,81 @@ public class NetworkSettingsViewModel : ViewModelBase
         });
     }
 
+    // ========== 服务器浏览器 ==========
+
+    private async Task EnterServerBrowser()
+    {
+        IsShowingServerBrowser = true;
+        await LoadServerList();
+    }
+
+    private async Task LoadServerList()
+    {
+        IsLoadingServers = true;
+        ConnectionStatus = "";
+        try
+        {
+            // 创建独立连接到列表服务器
+            _serverBrowserAdapter?.Dispose();
+            _serverBrowserAdapter = new WebSocketNetworkAdapter(MasterUrl, "");
+            _serverBrowserAdapter.OnServerListUpdated += OnServerListUpdated;
+            await _serverBrowserAdapter.ConnectToLobbyAsync(MasterUrl);
+
+            await _serverBrowserAdapter.RequestServerListAsync();
+            _serverBrowserList.Clear();
+            foreach (var entry in _serverBrowserAdapter.ServerBrowserList)
+                _serverBrowserList.Add(entry);
+            OnPropertyChanged(nameof(HasServers));
+
+            if (_serverBrowserList.Count == 0)
+            {
+                ConnectionStatus = "列表服务器暂无可用服务器";
+                ConnectionStatusColor = "#f39c12";
+            }
+        }
+        catch (Exception ex)
+        {
+            ConnectionStatus = $"连接列表服务器失败: {ex.Message}";
+            ConnectionStatusColor = "#e74c3c";
+        }
+        finally
+        {
+            IsLoadingServers = false;
+        }
+    }
+
+    private void SelectServer(string wsUrl)
+    {
+        if (string.IsNullOrWhiteSpace(wsUrl)) return;
+
+        // 将选中的服务器地址填入服务器地址栏
+        ServerUrl = wsUrl;
+        IsShowingServerBrowser = false;
+        ConnectionStatus = $"已选择服务器: {wsUrl}";
+        ConnectionStatusColor = "#27ae60";
+    }
+
+    private void OnServerListUpdated()
+    {
+        Application.Current?.Dispatcher.InvokeAsync(() =>
+        {
+            _serverBrowserList.Clear();
+            if (_serverBrowserAdapter != null)
+            {
+                foreach (var entry in _serverBrowserAdapter.ServerBrowserList)
+                    _serverBrowserList.Add(entry);
+            }
+            OnPropertyChanged(nameof(HasServers));
+        });
+    }
+
     /// <summary>
     /// 保存当前设置到配置文件
     /// </summary>
     private void SaveConfig()
     {
         _config.ServerUrl = _serverUrl;
+        _config.MasterUrl = _masterUrl;
         _config.P2pIpAddress = _ipAddress;
         if (int.TryParse(_portText, out int port))
             _config.P2pPort = port;
@@ -416,5 +535,12 @@ public class NetworkSettingsViewModel : ViewModelBase
             _lobbyAdapter.Dispose();
         }
         _lobbyAdapter = null;
+
+        if (_serverBrowserAdapter != null)
+        {
+            _serverBrowserAdapter.OnServerListUpdated -= OnServerListUpdated;
+            _serverBrowserAdapter.Dispose();
+        }
+        _serverBrowserAdapter = null;
     }
 }

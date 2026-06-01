@@ -160,7 +160,7 @@ LolitaPoker.Core/
 ├── ViewModels/      # MVVM视图模型层
 │   ├── MainViewModel.cs   # 应用壳视图模型，管理三级视图切换
 │   ├── ModeSelectViewModel.cs # 模式选择逻辑（人机直接开始/P2P和服务器导航到设置页）
-│   ├── NetworkSettingsViewModel.cs # 网络连接设置（P2P和服务器共用）
+│   ├── NetworkSettingsViewModel.cs # 网络连接设置（P2P和服务器共用，含列表服务器浏览和服务器浏览器）
 │   ├── GameViewModel.cs   # 游戏主视图模型，连接GameManager和UI
 │   ├── PlayerViewModel.cs # 玩家UI状态
 │   └── CardViewModel.cs   # 卡牌UI状态
@@ -203,7 +203,8 @@ server/              # FastAPI 游戏服务器
 ├── game_logic.py    # 服务端游戏状态机（ServerGameManager）
 ├── room_manager.py  # 房间管理（创建/加入/断线处理/大厅房间列表）
 ├── models.py        # Pydantic 消息模型（含 SetRoomVisibilityPayload）
-├── server_config.py # 服务器参数配置（并发对局上限，持久化到 server_config.json）
+├── server_config.py # 服务器参数配置（并发对局上限 + 从服务器注册参数，持久化到 server_config.json）
+├── master_config.py  # 列表服务器配置（端口、清理间隔、超时判定，持久化到 master_config.json）
 ├── master.py         # 列表服务器（主服务器）：从服务器注册/发现、服务器列表、启停管理、大厅 WebSocket 推送
 ├── slave_config.py   # 从服务器注册客户端：向列表服务器注册、周期心跳、接收启停指令
 ├── requirements.txt # 依赖：fastapi, uvicorn, websockets, pydantic, pytest, psutil
@@ -248,7 +249,7 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - 配置文件位于 `AppDomain.CurrentDomain.BaseDirectory` 下（`bin/Debug/net8.0-windows/` 或 `bin/Release/net8.0-windows/`），可被外部程序直接读写
 - `Load()` / `Save()` 方法：自动加载/保存到默认路径
 - `LoadFrom(path)` / `SaveTo(path)` 方法：供外部工具指定路径读写
-- 持久化字段：`server_url`（服务器地址）、`p2p_ip`（P2P IP）、`p2p_port`（P2P 端口）
+- 持久化字段：`server_url`（服务器地址）、`p2p_ip`（P2P IP）、`p2p_port`（P2P 端口）、`master_url`（列表服务器地址）
 - `NetworkSettingsViewModel` 构造时加载配置，任何设置变更时自动保存
 
 **MainViewModel** (ViewModels/MainViewModel.cs)
@@ -268,15 +269,17 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - P2P 和服务器共用的连接设置视图模型
 - 通过 `Mode` 属性区分 P2P/服务器，动态显示对应配置项
 - P2P：IP 地址 + 端口 + 创建/加入房间
-- 服务器：服务器地址 + 三种连接方式卡片（创建房间 / 加入房间 / 查找公开房间）
-- **配置持久化**：构造时通过 `GameConfig.Load()` 加载保存的服务器地址和 P2P 设置；`ServerUrl`、`IpAddress`、`PortText` 属性变更时自动通过 `SaveConfig()` 持久化到 `game_config.json`
-- **`IsShowingLobby`** 属性：控制主页面与大厅二级页面的切换
-- **主页面**：服务器地址输入 + 创建房间卡片（含 `IsPublicRoom` 复选框）+ 加入房间卡片（含房间号输入）+ 查找公开房间入口
+- 服务器：列表服务器地址 + 游戏服务器地址（直连）+ 三种连接方式卡片（创建房间 / 加入房间 / 查找公开房间）+ 浏览可用服务器
+- **配置持久化**：构造时通过 `GameConfig.Load()` 加载保存的服务器地址和 P2P 设置；`ServerUrl`、`MasterUrl`、`IpAddress`、`PortText` 属性变更时自动通过 `SaveConfig()` 持久化到 `game_config.json`
+- **三级页面**：`IsShowingMainPage`（主页面）↔ `IsShowingLobby`（大厅房间列表）↔ `IsShowingServerBrowser`（服务器浏览器）
+- **主页面**：列表服务器地址输入 + 浏览可用服务器入口 + 游戏服务器地址输入（直连）+ 创建房间卡片（含 `IsPublicRoom` 复选框）+ 加入房间卡片（含房间号输入）+ 查找公开房间入口
+- **服务器浏览器页面**：连接列表服务器获取可用游戏服务器列表，显示服务器名称、在线状态、对局容量（`ActiveGames/MaxConcurrentGames`）、可创建对局数；点击「选择」自动填入游戏服务器地址
 - **大厅二级页面**：点击「查找公开房间」进入，显示公开房间列表 + 刷新按钮，点击「加入」直接加入
 - **`_lobbyAdapter`**：独立的 WebSocket 连接用于浏览大厅，与游戏 adapter 分离；加入/创建房间时自动 dispose
+- **`_serverBrowserAdapter`**：独立的 WebSocket 连接用于浏览列表服务器，通过 `ConnectToLobbyAsync` 连接 `/ws/lobby` 端点
 - **`IsPublicRoom`**：创建房间时是否公开（默认 true），传递给 `WebSocketNetworkAdapter.IsPublicRoom`
-- **`BackCommand`**：智能返回——大厅页面返回主页面，主页面返回模式选择
-- **`Cleanup()`**：断开大厅 adapter 连接，取消事件订阅
+- **`BackCommand`**：智能返回——服务器浏览器/大厅返回主页面，主页面返回模式选择
+- **`Cleanup()`**：断开大厅 adapter 和服务器浏览器 adapter 连接，取消事件订阅
 
 **GameManager** (Game/GameManager.cs)
 - 游戏状态机，管理 Idle → Dealing → Bidding → Playing → GameOver 生命周期
@@ -323,6 +326,10 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - **`SetRoomVisibilityAsync(isPublic)`**：发送 `set_room_visibility` 消息切换房间可见性
 - **`RoomList`** 属性：`List<RoomListEntry>`，存储公开房间列表（由 `ParseRoomList` 更新）
 - **`OnRoomListUpdated`** 事件：收到 `room_list_updated` 推送时触发
+- **`ConnectToLobbyAsync(masterUrl)`**：连接列表服务器 `/ws/lobby` 端点，用于服务器浏览器
+- **`RequestServerListAsync()`**：发送 `list_servers` 请求，解析 `server_list` 响应填充 `ServerBrowserList`
+- **`ServerBrowserList`** 属性：`List<ServerBrowserEntry>`，存储可用游戏服务器列表（含名称、地址、对局容量、在线状态）
+- **`OnServerListUpdated`** 事件：收到 `server_list_updated` 推送时触发
 - **`IsPublicRoom`** 属性：创建房间时的可见性设置，由 `NetworkSettingsViewModel` 写入，`MainViewModel` 读取同步给 `GameViewModel`
 - **`SendReconnectVoteAsync(choice)`**：发送断线投票（"end"/"continue"）
 - **断线重连**：`_reconnectPlayerId` 存储玩家ID；`ReceiveLoopAsync` 断线时自动调用 `TryReconnectAsync`（最多6次，间隔10秒）；通过 `?reconnect_player_id=xxx` 查询参数告知服务端
@@ -400,11 +407,22 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 **ServerConfig** (server/server_config.py)
 - 服务器参数配置管理器，持久化到 `server_config.json`
 - `max_concurrent_games`：最大并发对局数（默认 10），修改后立即生效并保存
-- `active_games`：当前进行中的对局数（内存计数）
+- `master_url`：列表服务器地址（空字符串=独立模式，非空=从服务器模式）
+- `slave_name`：从服务器名称（注册时显示）
+- `slave_host`：从服务器外部可达地址（注册时告知客户端）
+- `active_games`：当前进行中的对局数（内存计数，不持久化）
 - `can_start_game()`：检查是否还能开始新对局
 - `on_game_start()` / `on_game_end()`：对局开始/结束时更新计数
 - `set_max_concurrent_games(value)`：运行时修改上限并持久化
 - `get_status()`：返回当前状态（上限+进行中数量）
+- **优先级**：环境变量 `MASTER_URL`/`SLAVE_NAME`/`SLAVE_HOST`/`SERVER_PORT` 覆盖配置文件
+
+**MasterConfig** (server/master_config.py)
+- 列表服务器配置管理器，持久化到 `master_config.json`
+- `port`：监听端口（默认 8000），环境变量 `MASTER_PORT` 覆盖
+- `cleanup_interval`：清理超时从服务器的间隔秒数（默认 30）
+- `dead_timeout`：从服务器心跳超时判定秒数（默认 60）
+- `api_key`：管理接口密钥（空=不验证），配置后 enable/disable/remove 端点需要 `X-API-Key` 请求头
 
 ### 主从服务器架构（模式1：直连模式）
 
@@ -426,16 +444,37 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 
 **启动方式**
 ```bash
-# 启动列表服务器
-python master.py  # 端口 8000
+# 启动列表服务器（端口由 master_config.json 或 MASTER_PORT 环境变量决定）
+python master.py
 
 # 启动从服务器（独立模式，不注册）
-python main.py  # 端口 8050
+python main.py
 
-# 启动从服务器（注册到列表服务器）
+# 启动从服务器（通过配置文件注册）
+# 编辑 server_config.json，设置 "master_url": "ws://127.0.0.1:8000/ws/slave"
+python main.py
+
+# 启动从服务器（通过环境变量注册，覆盖配置文件）
 MASTER_URL=ws://127.0.0.1:8000/ws/slave python main.py
-# 或指定名称和外部地址
 SLAVE_NAME=服务器A SLAVE_HOST=192.168.1.100 MASTER_URL=ws://192.168.1.1:8000/ws/slave python main.py
+```
+
+**配置文件**
+```json
+// server_config.json（从服务器）
+{
+  "max_concurrent_games": 10,
+  "master_url": "ws://127.0.0.1:8000/ws/slave",
+  "slave_name": "萝莉丝扑克服务器",
+  "slave_host": "127.0.0.1"
+}
+
+// master_config.json（列表服务器）
+{
+  "port": 8000,
+  "cleanup_interval": 30,
+  "dead_timeout": 60
+}
 ```
 
 ## 游戏流程

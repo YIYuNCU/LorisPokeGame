@@ -34,6 +34,30 @@ public class RoomListEntry
         : "等待加入...";
 }
 
+/// <summary>服务器浏览器条目（来自列表服务器）</summary>
+public class ServerBrowserEntry
+{
+    public string ServerId { get; set; } = "";
+    public string ServerName { get; set; } = "";
+    public string Host { get; set; } = "";
+    public int Port { get; set; }
+    public string WsUrl { get; set; } = "";
+    public int MaxConcurrentGames { get; set; }
+    public int ActiveGames { get; set; }
+    public int ConnectedPlayers { get; set; }
+    public bool Enabled { get; set; } = true;
+    public bool IsAlive { get; set; } = true;
+
+    /// <summary>可创建对局数</summary>
+    public int AvailableGames => Math.Max(0, MaxConcurrentGames - ActiveGames);
+
+    /// <summary>容量显示文本</summary>
+    public string CapacityText => $"{ActiveGames}/{MaxConcurrentGames} 对局";
+
+    /// <summary>状态显示文本</summary>
+    public string StatusText => !Enabled ? "已禁用" : !IsAlive ? "离线" : $"在线 · {ConnectedPlayers} 人";
+}
+
 /// <summary>
 /// WebSocket 网络适配器 - 连接远程 FastAPI 游戏服务器
 /// </summary>
@@ -56,6 +80,9 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
     /// <summary>公共房间列表（用于大厅浏览）</summary>
     public List<RoomListEntry> RoomList { get; private set; } = new();
 
+    /// <summary>服务器浏览器列表（来自列表服务器）</summary>
+    public List<ServerBrowserEntry> ServerBrowserList { get; private set; } = new();
+
     /// <summary>房间可见性（创建时设置）</summary>
     public bool IsPublicRoom { get; set; } = true;
 
@@ -63,6 +90,7 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
     public event Action<bool>? OnConnectionStateChanged;
     public event Action<string, bool>? OnPlayerPresenceChanged;
     public event Action? OnRoomListUpdated;
+    public event Action? OnServerListUpdated;
 
     private readonly string _serverUrl;
     private readonly string _playerName;
@@ -184,6 +212,36 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
     public async Task SetRoomVisibilityAsync(bool isPublic, CancellationToken ct = default)
     {
         await SendJsonAsync(new { type = "set_room_visibility", payload = new { is_public = isPublic } }, ct);
+    }
+
+    /// <summary>
+    /// 连接到列表服务器大厅（用于浏览可用服务器）
+    /// </summary>
+    public async Task ConnectToLobbyAsync(string masterUrl, CancellationToken ct = default)
+    {
+        _webSocket = new ClientWebSocket();
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        await _webSocket.ConnectAsync(new Uri(masterUrl), _cts.Token);
+        OnConnectionStateChanged?.Invoke(true);
+        _receiveTask = Task.Run(() => ReceiveLoopAsync(_cts.Token), _cts.Token);
+    }
+
+    /// <summary>
+    /// 请求服务器列表（列表服务器协议）
+    /// </summary>
+    public async Task RequestServerListAsync(CancellationToken ct = default)
+    {
+        _pendingResponse = new TaskCompletionSource<JsonElement>();
+        await SendJsonAsync(new { type = "list_servers", payload = new { } }, ct);
+
+        var response = await WaitForResponseAsync(ct);
+        if (response.ValueKind == JsonValueKind.Undefined) return;
+
+        var type = response.GetProperty("type").GetString();
+        if (type == "server_list")
+        {
+            ParseServerList(response.GetProperty("payload"));
+        }
     }
 
     /// <summary>
@@ -379,7 +437,7 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
 
                     // 仅当消息是真正的请求响应时才传递给 _pendingResponse
                     // 通知类消息（player_joined, player_ready 等）始终走 DispatchMessage
-                    bool isResponse = type is "room_created" or "room_joined" or "error" or "room_list";
+                    bool isResponse = type is "room_created" or "room_joined" or "error" or "room_list" or "server_list";
                     if (isResponse && _pendingResponse != null && !_pendingResponse.Task.IsCompleted)
                     {
                         _pendingResponse.TrySetResult(root);
@@ -455,6 +513,29 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
                     entry.Players.Add(p.GetString() ?? "");
             }
             RoomList.Add(entry);
+        }
+    }
+
+    private void ParseServerList(System.Text.Json.JsonElement payload)
+    {
+        if (!payload.TryGetProperty("servers", out var arr)) return;
+        ServerBrowserList.Clear();
+        foreach (var el in arr.EnumerateArray())
+        {
+            var entry = new ServerBrowserEntry
+            {
+                ServerId = el.GetProperty("server_id").GetString() ?? "",
+                ServerName = el.GetProperty("server_name").GetString() ?? "",
+                Host = el.GetProperty("host").GetString() ?? "",
+                Port = el.GetProperty("port").GetInt32(),
+                WsUrl = el.GetProperty("ws_url").GetString() ?? "",
+                MaxConcurrentGames = el.GetProperty("max_concurrent_games").GetInt32(),
+                ActiveGames = el.GetProperty("active_games").GetInt32(),
+                ConnectedPlayers = el.GetProperty("connected_players").GetInt32(),
+                Enabled = el.GetProperty("enabled").GetBoolean(),
+                IsAlive = el.GetProperty("is_alive").GetBoolean(),
+            };
+            ServerBrowserList.Add(entry);
         }
     }
 
@@ -595,6 +676,12 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
             {
                 ParseRoomList(payload);
                 OnRoomListUpdated?.Invoke();
+                break;
+            }
+            case "server_list_updated":
+            {
+                ParseServerList(payload);
+                OnServerListUpdated?.Invoke();
                 break;
             }
             case "vote_start":

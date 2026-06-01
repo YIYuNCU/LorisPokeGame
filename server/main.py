@@ -744,20 +744,21 @@ if __name__ == "__main__":
     import os
     import uvicorn
 
-    master_url = os.environ.get("MASTER_URL")
-    slave_name = os.environ.get("SLAVE_NAME", "萝莉丝扑克服务器")
-    slave_host = os.environ.get("SLAVE_HOST", "127.0.0.1")
+    # 环境变量覆盖配置文件，配置文件提供默认值
     port = int(os.environ.get("SERVER_PORT", "8050"))
+    master_url = os.environ.get("MASTER_URL") or server_config.master_url or None
+    slave_name = os.environ.get("SLAVE_NAME") or server_config.slave_name
+    slave_host = os.environ.get("SLAVE_HOST") or server_config.slave_host
 
     if master_url:
         # 从服务器模式：启动后注册到列表服务器
         from slave_config import SlaveConfig, SlaveRegistration
-        import asyncio as _asyncio
 
         _slave_config = SlaveConfig(
             server_name=slave_name,
             host=slave_host,
             port=port,
+            max_concurrent_games=server_config.max_concurrent_games,
         )
         _slave_reg = SlaveRegistration(
             master_url=master_url,

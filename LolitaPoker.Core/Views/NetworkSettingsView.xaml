@@ -157,8 +157,8 @@
                       HorizontalAlignment="Stretch">
             <StackPanel Width="780" HorizontalAlignment="Center" Margin="40,25">
 
-                <!-- ========== 主页面（IsShowingLobby=false） ========== -->
-                <StackPanel Visibility="{Binding IsShowingLobby, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                <!-- ========== 主页面（IsShowingMainPage=true） ========== -->
+                <StackPanel Visibility="{Binding IsShowingMainPage, Converter={StaticResource BoolToVis}}">
 
                     <!-- 标题 -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,5">
@@ -186,7 +186,30 @@
 
                             <!-- 服务器专属设置 -->
                             <StackPanel Visibility="{Binding IsServerMode, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="服务器地址" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock Text="列表服务器地址" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding MasterUrl, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{StaticResource SettingTextBox}"/>
+
+                                <!-- 浏览可用服务器按钮 -->
+                                <Border Background="#1a1a2e" CornerRadius="8" Padding="16,10" Margin="0,8,0,10"
+                                        BorderBrush="#2c3e50" BorderThickness="1"
+                                        Cursor="Hand" MouseLeftButtonDown="OnServerBrowserClick">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="🖥️ 浏览可用服务器" Foreground="#9b59b6" FontSize="14"
+                                                       FontWeight="Bold" Margin="0,0,0,2"/>
+                                            <TextBlock Text="从列表服务器发现可用的游戏服务器" Foreground="#777" FontSize="12"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="→" Foreground="#9b59b6" FontSize="18"
+                                                   VerticalAlignment="Center" Margin="10,0,4,0"/>
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Text="游戏服务器地址（直连）" Style="{StaticResource FieldLabel}"/>
                                 <TextBox Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}"
                                          Style="{StaticResource SettingTextBox}"/>
                             </StackPanel>
@@ -368,6 +391,104 @@
                                                         Command="{Binding DataContext.JoinSelectedRoomCommand,
                                                             RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                         CommandParameter="{Binding RoomCode}"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 连接状态 -->
+                    <TextBlock Text="{Binding ConnectionStatus}"
+                               Foreground="{Binding ConnectionStatusColor}"
+                               FontSize="15" HorizontalAlignment="Center"
+                               Margin="0,5,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <!-- ========== 服务器浏览器页面（IsShowingServerBrowser=true） ========== -->
+                <StackPanel Visibility="{Binding IsShowingServerBrowser, Converter={StaticResource BoolToVis}}">
+
+                    <!-- 标题 -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,5">
+                        <TextBlock Text="🖥️" FontSize="30" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="可用服务器" FontSize="28" FontWeight="Bold"
+                                   Foreground="#FFD700" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="选择一个服务器，自动填入游戏服务器地址" FontSize="14"
+                               Foreground="#777" HorizontalAlignment="Center" Margin="0,0,0,20"/>
+
+                    <!-- 服务器列表卡片 -->
+                    <Border Background="#16213e" CornerRadius="12" Padding="20,16" Margin="0,0,0,14"
+                            BorderBrush="#2c3e50" BorderThickness="1">
+                        <StackPanel>
+                            <!-- 标题栏 -->
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+                                <TextBlock Text="服务器列表" Foreground="#aaa" FontSize="15"
+                                           FontWeight="Bold" VerticalAlignment="Center"/>
+                                <Button Content="🔄 刷新"
+                                        Command="{Binding RefreshServerListCommand}"
+                                        Style="{StaticResource SettingButton}" Margin="12,0,0,0"
+                                        MinWidth="80" Padding="14,4" FontSize="13"/>
+                            </StackPanel>
+
+                            <!-- 加载中 -->
+                            <TextBlock Text="正在连接列表服务器..." Foreground="#777" FontSize="13"
+                                       HorizontalAlignment="Center" Margin="0,5"
+                                       Visibility="{Binding IsLoadingServers, Converter={StaticResource BoolToVis}}"/>
+
+                            <!-- 空列表提示 -->
+                            <Border Background="#1a1a2e" CornerRadius="8" Padding="20,24" Margin="0,5"
+                                    Visibility="{Binding HasServers, Converter={StaticResource BoolToVis}, ConverterParameter=Inverse}">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Text="暂无可用服务器" Foreground="#555" FontSize="15"
+                                               HorizontalAlignment="Center"/>
+                                    <TextBlock Text="请确认列表服务器地址正确，或稍后重试" Foreground="#444" FontSize="12"
+                                               HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 服务器列表 -->
+                            <ItemsControl ItemsSource="{Binding ServerBrowserList}" MaxHeight="400">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#1a1a2e" CornerRadius="8" Padding="16,12" Margin="0,4"
+                                                BorderBrush="#2c3e50" BorderThickness="1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Foreground="#FFD700" FontSize="15" FontWeight="Bold"
+                                                                   Text="{Binding ServerName, Mode=OneWay}"/>
+                                                        <TextBlock Foreground="#888" FontSize="12" Margin="10,0,0,0"
+                                                                   VerticalAlignment="Center"
+                                                                   Text="{Binding StatusText, Mode=OneWay}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                        <TextBlock Foreground="#4a9eff" FontSize="12"
+                                                                   Text="{Binding CapacityText, Mode=OneWay}"/>
+                                                        <TextBlock Foreground="#666" FontSize="12" Margin="12,0,0,0"
+                                                                   VerticalAlignment="Center">
+                                                            <TextBlock.Text>
+                                                                <MultiBinding StringFormat="可创建 {0} 局">
+                                                                    <Binding Path="AvailableGames" Mode="OneWay"/>
+                                                                </MultiBinding>
+                                                            </TextBlock.Text>
+                                                        </TextBlock>
+                                                        <TextBlock Foreground="#555" FontSize="11" Margin="12,0,0,0"
+                                                                   VerticalAlignment="Center"
+                                                                   Text="{Binding WsUrl, Mode=OneWay}"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Content="选择" Width="64" Height="32"
+                                                        Style="{StaticResource PrimaryButton}" FontSize="13"
+                                                        VerticalAlignment="Center"
+                                                        Command="{Binding DataContext.SelectServerCommand,
+                                                            RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding WsUrl}"/>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>

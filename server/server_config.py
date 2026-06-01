@@ -1,6 +1,6 @@
 """
 server_config.py - 服务器参数配置
-管理并发对局上限等可配置参数，持久化到 JSON 文件
+管理并发对局上限、从服务器注册等可配置参数，持久化到 JSON 文件
 """
 
 import json
@@ -14,6 +14,10 @@ CONFIG_FILE = Path(__file__).parent / "server_config.json"
 # 默认配置
 DEFAULT_CONFIG = {
     "max_concurrent_games": 10,
+    # 从服务器注册参数（为空或不存在时为独立模式）
+    "master_url": "",
+    "slave_name": "萝莉丝扑克服务器",
+    "slave_host": "127.0.0.1",
 }
 
 
@@ -22,6 +26,9 @@ class ServerConfig:
 
     def __init__(self):
         self.max_concurrent_games: int = DEFAULT_CONFIG["max_concurrent_games"]
+        self.master_url: str = DEFAULT_CONFIG["master_url"]
+        self.slave_name: str = DEFAULT_CONFIG["slave_name"]
+        self.slave_host: str = DEFAULT_CONFIG["slave_host"]
         self._active_games: int = 0  # 当前进行中的对局数（内存，不持久化）
         self._load()
 
@@ -31,20 +38,28 @@ class ServerConfig:
             if CONFIG_FILE.exists():
                 data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
                 self.max_concurrent_games = data.get("max_concurrent_games", DEFAULT_CONFIG["max_concurrent_games"])
-                logger.info(f"已加载配置: 最大并发对局 {self.max_concurrent_games}")
+                self.master_url = data.get("master_url", DEFAULT_CONFIG["master_url"])
+                self.slave_name = data.get("slave_name", DEFAULT_CONFIG["slave_name"])
+                self.slave_host = data.get("slave_host", DEFAULT_CONFIG["slave_host"])
+                logger.info(f"已加载配置: 最大并发对局 {self.max_concurrent_games}, master_url='{self.master_url}'")
             else:
-                # 首次运行，写入默认配置
                 self._save()
                 logger.info(f"已创建默认配置文件: {CONFIG_FILE}")
         except Exception as e:
             logger.warning(f"加载配置失败，使用默认值: {e}")
             self.max_concurrent_games = DEFAULT_CONFIG["max_concurrent_games"]
+            self.master_url = DEFAULT_CONFIG["master_url"]
+            self.slave_name = DEFAULT_CONFIG["slave_name"]
+            self.slave_host = DEFAULT_CONFIG["slave_host"]
 
     def _save(self):
-        """保存配置到文件"""
+        """保存配置到文件（仅持久化静态参数，不持久化运行时状态）"""
         try:
             data = {
                 "max_concurrent_games": self.max_concurrent_games,
+                "master_url": self.master_url,
+                "slave_name": self.slave_name,
+                "slave_host": self.slave_host,
             }
             CONFIG_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:

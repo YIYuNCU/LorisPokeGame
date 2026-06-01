@@ -12,13 +12,25 @@ from dataclasses import dataclass, field
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header
 from fastapi.responses import JSONResponse
+
+from master_config import MasterConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="萝莉丝扑克 - 列表服务器", version="1.0.0")
+master_config = MasterConfig()
+
+
+def _verify_api_key(x_api_key: str | None) -> JSONResponse | None:
+    """验证管理接口密钥，返回 None 表示通过，返回 JSONResponse 表示拒绝"""
+    if not master_config.api_key:
+        return None  # 未配置密钥，跳过验证
+    if x_api_key == master_config.api_key:
+        return None  # 验证通过
+    return JSONResponse(status_code=401, content={"error": "需要有效的管理密钥（X-API-Key 头）"})
 
 
 # ================================================================
@@ -284,8 +296,11 @@ async def list_servers():
 
 
 @app.post("/api/servers/{server_id}/enable")
-async def enable_server(server_id: str):
-    """启用从服务器"""
+async def enable_server(server_id: str, x_api_key: str | None = Header(default=None)):
+    """启用从服务器（需要 X-API-Key）"""
+    if err := _verify_api_key(x_api_key):
+        return err
+
     info = registry.get_by_id(server_id)
     if not info:
         return JSONResponse(status_code=404, content={"error": "服务器不存在"})
@@ -304,8 +319,11 @@ async def enable_server(server_id: str):
 
 
 @app.post("/api/servers/{server_id}/disable")
-async def disable_server(server_id: str):
-    """禁用从服务器"""
+async def disable_server(server_id: str, x_api_key: str | None = Header(default=None)):
+    """禁用从服务器（需要 X-API-Key）"""
+    if err := _verify_api_key(x_api_key):
+        return err
+
     info = registry.get_by_id(server_id)
     if not info:
         return JSONResponse(status_code=404, content={"error": "服务器不存在"})
@@ -324,8 +342,11 @@ async def disable_server(server_id: str):
 
 
 @app.delete("/api/servers/{server_id}")
-async def remove_server(server_id: str):
-    """移除从服务器"""
+async def remove_server(server_id: str, x_api_key: str | None = Header(default=None)):
+    """移除从服务器（需要 X-API-Key）"""
+    if err := _verify_api_key(x_api_key):
+        return err
+
     if not registry.get_by_id(server_id):
         return JSONResponse(status_code=404, content={"error": "服务器不存在"})
     registry.unregister(server_id)
@@ -361,15 +382,16 @@ async def health():
 async def startup():
     async def cleanup_loop():
         while True:
-            await asyncio.sleep(30)
-            registry.cleanup_dead()
+            await asyncio.sleep(master_config.cleanup_interval)
+            registry.cleanup_dead(master_config.dead_timeout)
             await broadcast_lobby_update()
 
     asyncio.create_task(cleanup_loop())
-    logger.info("列表服务器已启动")
+    logger.info(f"列表服务器已启动 (port={master_config.port}, cleanup_interval={master_config.cleanup_interval}s, dead_timeout={master_config.dead_timeout}s, api_key={'已设置' if master_config.api_key else '未设置'})")
 
 
 if __name__ == "__main__":
     import os
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("MASTER_PORT", "8000")))
+    port = int(os.environ.get("MASTER_PORT", str(master_config.port)))
+    uvicorn.run(app, host="0.0.0.0", port=port)

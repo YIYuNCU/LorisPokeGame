@@ -405,3 +405,176 @@ class TestEndToEnd:
 
         room_code = asyncio.run(run())
         assert len(room_code) == 6
+
+
+# ================================================================
+# API Key 验证测试
+# ================================================================
+
+
+@pytest.fixture()
+def master_with_api_key():
+    """启动配置了 API Key 的列表服务器"""
+    global _master_port
+    port = _master_port
+    _master_port += 1
+
+    # 写入带 api_key 的配置
+    config_file = SERVER_DIR / "master_config.json"
+    original = config_file.read_text(encoding="utf-8") if config_file.exists() else None
+    config_file.write_text(json.dumps({
+        "port": port,
+        "cleanup_interval": 30,
+        "dead_timeout": 60,
+        "api_key": "test-secret-key-12345",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    env = os.environ.copy()
+    env["MASTER_PORT"] = str(port)
+    proc = subprocess.Popen(
+        [sys.executable, "master.py"],
+        cwd=str(SERVER_DIR),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    try:
+        for _ in range(20):
+            if proc.poll() is not None:
+                raise RuntimeError(f"列表服务器已退出: {proc.returncode}")
+            try:
+                r = requests.get(f"http://{HOST}:{port}/health", timeout=1)
+                if r.status_code == 200:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
+        else:
+            proc.kill()
+            raise RuntimeError("列表服务器 10 秒内未就绪")
+
+        yield HOST, port, proc.pid, "test-secret-key-12345"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+        if original:
+            config_file.write_text(original, encoding="utf-8")
+
+
+class TestApiKeyAuth:
+
+    @pytest.mark.server_load
+    def test_management_requires_api_key(self, master_with_api_key):
+        """管理接口在配置了密钥后需要 X-API-Key 头"""
+        host, port, pid, key = master_with_api_key
+
+        async def run():
+            # 注册从服务器（不需要密钥）
+            ws = await websockets.connect(f"ws://{host}:{port}/ws/slave")
+            await ws.send(json.dumps({
+                "type": "register",
+                "payload": {"server_name": "测试", "host": host, "port": 19999},
+            }))
+            await asyncio.wait_for(ws.recv(), timeout=5)
+
+            # 获取 server_id
+            r = requests.get(f"http://{host}:{port}/api/servers", timeout=3)
+            servers = r.json()["servers"]
+            assert len(servers) >= 1
+            sid = servers[0]["server_id"]
+
+            # 无密钥 → 401
+            r = requests.post(f"http://{host}:{port}/api/servers/{sid}/disable", timeout=3)
+            assert r.status_code == 401
+
+            # 错误密钥 → 401
+            r = requests.post(f"http://{host}:{port}/api/servers/{sid}/disable",
+                              headers={"X-API-Key": "wrong-key"}, timeout=3)
+            assert r.status_code == 401
+
+            # 正确密钥 → 200
+            r = requests.post(f"http://{host}:{port}/api/servers/{sid}/disable",
+                              headers={"X-API-Key": key}, timeout=3)
+            assert r.status_code == 200
+            assert r.json()["enabled"] is False
+
+            await ws.close()
+
+        asyncio.run(run())
+
+    @pytest.mark.server_load
+    def test_read_endpoints_no_key_required(self, master_with_api_key):
+        """读取接口（列表、健康检查）不需要密钥"""
+        host, port, pid, key = master_with_api_key
+
+        r = requests.get(f"http://{host}:{port}/api/servers", timeout=3)
+        assert r.status_code == 200
+        r = requests.get(f"http://{host}:{port}/health", timeout=3)
+        assert r.status_code == 200
+        r = requests.get(f"http://{host}:{port}/", timeout=3)
+        assert r.status_code == 200
+
+    @pytest.mark.server_load
+    def test_enable_requires_api_key(self, master_with_api_key):
+        """启用接口也需要密钥"""
+        host, port, pid, key = master_with_api_key
+
+        async def run():
+            ws = await websockets.connect(f"ws://{host}:{port}/ws/slave")
+            await ws.send(json.dumps({
+                "type": "register",
+                "payload": {"server_name": "测试2", "host": host, "port": 19998},
+            }))
+            await asyncio.wait_for(ws.recv(), timeout=5)
+
+            r = requests.get(f"http://{host}:{port}/api/servers", timeout=3)
+            sid = r.json()["servers"][0]["server_id"]
+
+            # 先禁用
+            r = requests.post(f"http://{host}:{port}/api/servers/{sid}/disable",
+                              headers={"X-API-Key": key}, timeout=3)
+            assert r.status_code == 200
+
+            # 无密钥启用 → 401
+            r = requests.post(f"http://{host}:{port}/api/servers/{sid}/enable", timeout=3)
+            assert r.status_code == 401
+
+            # 有密钥启用 → 200
+            r = requests.post(f"http://{host}:{port}/api/servers/{sid}/enable",
+                              headers={"X-API-Key": key}, timeout=3)
+            assert r.status_code == 200
+            assert r.json()["enabled"] is True
+
+            await ws.close()
+
+        asyncio.run(run())
+
+    @pytest.mark.server_load
+    def test_remove_requires_api_key(self, master_with_api_key):
+        """移除接口也需要密钥"""
+        host, port, pid, key = master_with_api_key
+
+        async def run():
+            ws = await websockets.connect(f"ws://{host}:{port}/ws/slave")
+            await ws.send(json.dumps({
+                "type": "register",
+                "payload": {"server_name": "测试3", "host": host, "port": 19997},
+            }))
+            await asyncio.wait_for(ws.recv(), timeout=5)
+
+            r = requests.get(f"http://{host}:{port}/api/servers", timeout=3)
+            sid = r.json()["servers"][0]["server_id"]
+
+            # 无密钥移除 → 401
+            r = requests.delete(f"http://{host}:{port}/api/servers/{sid}", timeout=3)
+            assert r.status_code == 401
+
+            # 有密钥移除 → 200
+            r = requests.delete(f"http://{host}:{port}/api/servers/{sid}",
+                                headers={"X-API-Key": key}, timeout=3)
+            assert r.status_code == 200
+
+            await ws.close()
+
+        asyncio.run(run())

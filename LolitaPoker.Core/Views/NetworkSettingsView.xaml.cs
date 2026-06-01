@@ -16,4 +16,10 @@ public partial class NetworkSettingsView : UserControl
         if (DataContext is NetworkSettingsViewModel vm)
             vm.ShowLobbyCommand.Execute(null);
     }
+
+    private void OnServerBrowserClick(object sender, MouseButtonEventArgs e)
+    {
+        if (DataContext is NetworkSettingsViewModel vm)
+            vm.BrowseServersCommand.Execute(null);
+    }
 }

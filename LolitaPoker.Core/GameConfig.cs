@@ -55,6 +55,12 @@ public class GameConfig
     [JsonPropertyName("p2p_port")]
     public int P2pPort { get; set; } = 9000;
 
+    /// <summary>
+    /// 列表服务器（主服务器）WebSocket 地址
+    /// </summary>
+    [JsonPropertyName("master_url")]
+    public string MasterUrl { get; set; } = "ws://127.0.0.1:8000/ws/lobby";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
