@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>LolitaPoker.App</RootNamespace>
+    <AssemblyName>LolitaPoker.App</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Release：自包含单文件发布 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LolitaPoker.Core\LolitaPoker.Core.csproj" />
+  </ItemGroup>
+
+  <!-- 发布时复制 pics/ 图片目录（排除在单文件之外，与 exe 并列） -->
+  <ItemGroup>
+    <Content Include="..\pics\**\*" CopyToOutputDirectory="PreserveNewest" Link="pics\%(RecursiveDir)%(Filename)%(Extension)" ExcludeFromSingleFile="true" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

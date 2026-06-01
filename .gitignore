@@ -1,0 +1,99 @@
+# =============== .NET 构建 ===============
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# .NET 发布产物
+publish/
+publish-framework-dependent/
+[Pp]ublish/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+*.userprefs
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+
+# .NET 热重载
+*.blob
+
+# 测试结果
+TestResults
+[Tt]est[Rr]esult*
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+
+# =============== Python ===============
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+*.pyo
+.venv/
+venv/
+ENV/
+env/
+
+# =============== Flutter ===============
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.iml
+
+# =============== 运行时配置 ===============
+server/server_config.json
+game_config.json
+
+# =============== IDE ===============
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =============== OS ===============
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# =============== 其他 ===============
+*.bak
+*.tmp
+*.temp

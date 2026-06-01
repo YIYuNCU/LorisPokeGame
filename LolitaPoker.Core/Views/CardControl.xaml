@@ -1,0 +1,45 @@
+<UserControl x:Class="LolitaPoker.Core.Views.CardControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             MouseLeftButtonDown="OnCardClicked"
+             Cursor="Hand">
+
+    <Border x:Name="CardBorder"
+            CornerRadius="6"
+            BorderBrush="#555"
+            BorderThickness="1.5"
+            Background="White">
+        <Border.RenderTransform>
+            <TransformGroup>
+                <ScaleTransform x:Name="CardScale" CenterX="35" CenterY="50"
+                                ScaleX="1" ScaleY="1"/>
+                <TranslateTransform x:Name="CardTransform" X="0" Y="0"/>
+            </TransformGroup>
+        </Border.RenderTransform>
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="5" ShadowDepth="2" Opacity="0.4"/>
+        </Border.Effect>
+
+        <Grid>
+            <!-- 正面牌图片（初始隐藏，翻牌时显示） -->
+            <Image x:Name="FaceImage"
+                   Source="{Binding ImageSource}"
+                   Stretch="Uniform"
+                   Margin="2"
+                   Opacity="0"
+                   Visibility="Collapsed"/>
+
+            <!-- 牌背（背景.png） -->
+            <Image x:Name="CardBackImage"
+                   Stretch="UniformToFill"
+                   Margin="2"/>
+
+            <!-- 选中高亮边框 -->
+            <Border x:Name="SelectionBorder"
+                    BorderBrush="#FFD700"
+                    BorderThickness="2.5"
+                    CornerRadius="6"
+                    Visibility="Collapsed"/>
+        </Grid>
+    </Border>
+</UserControl>
