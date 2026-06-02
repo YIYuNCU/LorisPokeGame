@@ -36,7 +36,8 @@ pip install -r requirements.txt
   "max_concurrent_games": 10,
   "master_url": "",
   "slave_name": "萝莉丝扑克服务器",
-  "slave_host": "127.0.0.1"
+  "slave_host": "127.0.0.1",
+  "slave_port": 0
 }
 ```
 
@@ -46,8 +47,9 @@ pip install -r requirements.txt
 | `master_url` | 列表服务器地址（空=独立模式） | `""` |
 | `slave_name` | 注册到列表服务器时显示的名称 | `"萝莉丝扑克服务器"` |
 | `slave_host` | 客户端连接此服务器时使用的地址 | `"127.0.0.1"` |
+| `slave_port` | 注册到列表服务器时通告的端口（0=使用监听端口） | `0` |
 
-环境变量覆盖：`SERVER_PORT`、`MASTER_URL`、`SLAVE_NAME`、`SLAVE_HOST`
+环境变量覆盖：`SERVER_PORT`、`MASTER_URL`、`SLAVE_NAME`、`SLAVE_HOST`、`SLAVE_PORT`
 
 **优先级：环境变量 > 配置文件 > 代码默认值**
 
@@ -267,6 +269,18 @@ nssm start LolitaPoker
 **Q: `slave_host` 应该填什么？**
 
 填客户端能直接访问的地址。局域网填内网 IP（如 `192.168.1.100`），公网填公网 IP 或域名。不能填 `127.0.0.1`。
+
+**Q: `slave_port` 什么时候需要设置？**
+
+当外部可访问端口与内部监听端口不同时。例如服务器监听 8050，但路由器端口转发为 9050，或 Nginx 反代到其他端口：
+
+```json
+{
+  "slave_port": 9050
+}
+```
+
+这样客户端从列表服务器获取的连接地址是 `ws://你的IP:9050/ws`，而非 `ws://你的IP:8050/ws`。默认值 `0` 表示使用监听端口。
 
 **Q: 列表服务器挂了怎么办？**
 

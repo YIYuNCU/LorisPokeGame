@@ -18,6 +18,8 @@ DEFAULT_CONFIG = {
     "master_url": "",
     "slave_name": "萝莉丝扑克服务器",
     "slave_host": "127.0.0.1",
+    "slave_port": 0,  # 注册到列表服务器时通告的端口（0=使用监听端口）
+    "port": 8050  # 监听端口（如果注册到列表服务器，默认使用此端口）
 }
 
 
@@ -29,6 +31,8 @@ class ServerConfig:
         self.master_url: str = DEFAULT_CONFIG["master_url"]
         self.slave_name: str = DEFAULT_CONFIG["slave_name"]
         self.slave_host: str = DEFAULT_CONFIG["slave_host"]
+        self.slave_port: int = DEFAULT_CONFIG["slave_port"]
+        self.port: int = DEFAULT_CONFIG["slave_port"]  # 监听端口（如果注册到列表服务器，默认使用此端口）
         self._active_games: int = 0  # 当前进行中的对局数（内存，不持久化）
         self._load()
 
@@ -41,6 +45,7 @@ class ServerConfig:
                 self.master_url = data.get("master_url", DEFAULT_CONFIG["master_url"])
                 self.slave_name = data.get("slave_name", DEFAULT_CONFIG["slave_name"])
                 self.slave_host = data.get("slave_host", DEFAULT_CONFIG["slave_host"])
+                self.slave_port = data.get("slave_port", DEFAULT_CONFIG["slave_port"])
                 logger.info(f"已加载配置: 最大并发对局 {self.max_concurrent_games}, master_url='{self.master_url}'")
             else:
                 self._save()
@@ -51,6 +56,7 @@ class ServerConfig:
             self.master_url = DEFAULT_CONFIG["master_url"]
             self.slave_name = DEFAULT_CONFIG["slave_name"]
             self.slave_host = DEFAULT_CONFIG["slave_host"]
+            self.slave_port = DEFAULT_CONFIG["slave_port"]
 
     def _save(self):
         """保存配置到文件（仅持久化静态参数，不持久化运行时状态）"""
@@ -60,6 +66,7 @@ class ServerConfig:
                 "master_url": self.master_url,
                 "slave_name": self.slave_name,
                 "slave_host": self.slave_host,
+                "slave_port": self.slave_port,
             }
             CONFIG_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:

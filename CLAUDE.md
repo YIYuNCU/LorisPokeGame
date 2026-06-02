@@ -8,7 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 对自己的称呼从"我"改成"本喵"。
 - 每次修改代码文件后，必须运行 `dotnet build LolitaPoker.sln` 检查编译是否通过，编译通过的话说"编译通过了喵"。
 - 每次修改代码文件后，必须更新此文档的描述。
-- 每次更新代码后，需运行或补充后运行测试文件以检查是否存在漏洞。
+- 每次更新代码后，需运行或补充后运行测试文件以检查修改后的部分是否存在漏洞。
+- 每次更新测试文件后，考虑原本的测试文件是否需要同步更新。
 
 ## 项目概述
 
@@ -70,6 +71,33 @@ flutter analyze
 # 运行全部测试（97个）
 flutter test
 ```
+
+## 发布流程
+
+```bash
+# 发布框架依赖版本（需要用户安装 .NET 8 运行时）
+dotnet publish LolitaPoker.App/LolitaPoker.App.csproj -c Release -o publish/framework-dependent --self-contained false -r win-x64 -p:PublishSingleFile=false -p:EnableCompressionInSingleFile=false -p:IncludeNativeLibrariesForSelfExtract=false
+
+# 发布自包含版本（无需安装 .NET 运行时，体积较大）
+dotnet publish LolitaPoker.App/LolitaPoker.App.csproj -c Release -o publish/self-contained --self-contained true -r win-x64 -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+# 自包含单文件模式下，ExcludeFromSingleFile 配置可能不生效，需手动复制 pics 文件夹
+cp -r LolitaPoker.App/bin/Release/net8.0-windows/pics publish/self-contained/
+
+# 打包为 zip 文件
+Compress-Archive -Path publish/framework-dependent/* -DestinationPath publish/LolitaPoker-framework-dependent.zip -Force
+Compress-Archive -Path publish/self-contained/* -DestinationPath publish/LolitaPoker-self-contained.zip -Force
+```
+
+**发布产物：**
+- `publish/framework-dependent/` - 框架依赖版本（需用户安装 .NET 8 运行时，体积小，约 150KB exe + pics）
+- `publish/self-contained/` - 自包含单文件版本（无需 .NET 运行时，体积大，约 320MB exe + pics）
+- `publish/LolitaPoker-framework-dependent.zip` - 框架依赖版打包
+- `publish/LolitaPoker-self-contained.zip` - 自包含版打包
+
+**注意事项：**
+- 自包含单文件模式下，`ExcludeFromSingleFile="true"` 配置可能不会自动复制外部资源文件夹，需要手动复制 `pics/` 目录
+- 框架依赖版本会自动包含 `pics/` 文件夹（通过 .csproj 中的 Content 配置）
 
 ## 游戏配置文件
 

@@ -29,10 +29,17 @@ _slave_port = 19100
 
 @pytest.fixture()
 def master_server():
-    """启动列表服务器"""
+    """启动列表服务器（无 API Key，测试管理端点免密）"""
     global _master_port
     port = _master_port
     _master_port += 1
+
+    # 临时清除 API Key
+    config_file = SERVER_DIR / "master_config.json"
+    original = config_file.read_text(encoding="utf-8") if config_file.exists() else None
+    config_file.write_text(json.dumps({
+        "port": port, "cleanup_interval": 30, "dead_timeout": 60, "api_key": "",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     env = os.environ.copy()
     env["MASTER_PORT"] = str(port)
@@ -63,6 +70,8 @@ def master_server():
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+        if original:
+            config_file.write_text(original, encoding="utf-8")
 
 
 @pytest.fixture()
