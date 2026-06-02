@@ -41,6 +41,8 @@ class Room:
     created_at: datetime = field(default_factory=datetime.now)
     game_started: bool = False
     is_public: bool = True
+    creator_id: str = ""  # 房间创建者 player_id
+    turn_timeout: int = 30  # 出牌超时秒数
     dealing_ready: set[str] = field(default_factory=set)  # 已完成发牌动画的 player_id 集合
     pending_turn_change: Optional[dict] = field(default=None)  # 等所有玩家就绪后发送的 turn_change
 
@@ -50,6 +52,7 @@ class Room:
     vote_state: dict[str, str] = field(default_factory=dict)  # player_id -> "end"/"continue"
     _vote_timeout_task: Optional[asyncio.Task] = field(default=None, repr=False)
     _reconnect_timeout_task: Optional[asyncio.Task] = field(default=None, repr=False)
+    _turn_timeout_task: Optional[asyncio.Task] = field(default=None, repr=False)
 
     @property
     def player_count(self) -> int:
@@ -91,7 +94,7 @@ class RoomManager:
         返回: (room_code, room, assigned_seat)
         """
         room_code = self._generate_room_code()
-        room = Room(room_code=room_code, is_public=is_public)
+        room = Room(room_code=room_code, is_public=is_public, creator_id=player_id)
         seat = 0
 
         room.players[player_id] = PlayerConnection(
@@ -179,11 +182,16 @@ class RoomManager:
         return result
 
     def set_room_visibility(self, player_id: str, is_public: bool) -> tuple[bool, str]:
-        """设置房间可见性，返回 (success, message)"""
+        """设置房间可见性，仅创建者可操作，游戏中禁止。返回 (success, message)"""
         room_code = self._player_room_map.get(player_id)
         if not room_code or room_code not in self._rooms:
             return False, "你不在任何房间中"
-        self._rooms[room_code].is_public = is_public
+        room = self._rooms[room_code]
+        if room.creator_id != player_id:
+            return False, "仅房间创建者可修改可见性"
+        if room.game_started:
+            return False, "游戏进行中不可修改可见性"
+        room.is_public = is_public
         return True, ""
 
     def store_reconnect_token(self, player_id: str) -> Optional[tuple[Room, ReconnectToken]]:

@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using LolitaPoker.Core.AI;
 using LolitaPoker.Core.Assets;
+using LolitaPoker.Core.Audio;
 using LolitaPoker.Core.Enums;
 using LolitaPoker.Core.Game;
 using LolitaPoker.Core.Models;
@@ -88,6 +89,7 @@ public class GameViewModel : ViewModelBase
 
     // ========== 状态 ==========
     private string _statusMessage = "点击「新游戏」开始";
+    private string _hintNoPlayMessage = "";
     private GamePhase _currentPhase = GamePhase.Idle;
     private bool _isBidPanelVisible;
     private bool _isPlayPanelVisible;
@@ -114,6 +116,7 @@ public class GameViewModel : ViewModelBase
 
     // ========== 房间可见性 ==========
     private bool _isPublicRoom = true;
+    private bool _isRoomCreator;
     public bool IsPublicRoom
     {
         get => _isPublicRoom;
@@ -124,6 +127,21 @@ public class GameViewModel : ViewModelBase
         }
     }
 
+    /// <summary>当前玩家是否为房间创建者（仅创建者可修改可见性）</summary>
+    public bool IsRoomCreator
+    {
+        get => _isRoomCreator;
+        set
+        {
+            if (SetProperty(ref _isRoomCreator, value))
+                OnPropertyChanged(nameof(IsRoomVisibilityToggleEnabled));
+        }
+    }
+
+    /// <summary>可见性切换是否可用（仅创建者 + 游戏未开始时可用）</summary>
+    public bool IsRoomVisibilityToggleEnabled =>
+        IsRoomCreator && (CurrentPhase == GamePhase.Idle || CurrentPhase == GamePhase.GameOver);
+
     public string RoomVisibilityText => _isPublicRoom ? "🟢 公开" : "🔴 私密";
 
     /// <summary>
@@ -131,6 +149,7 @@ public class GameViewModel : ViewModelBase
     /// </summary>
     public async void ToggleRoomVisibility()
     {
+        if (!IsRoomVisibilityToggleEnabled) return;
         IsPublicRoom = !IsPublicRoom;
         if (_networkAdapter is WebSocketNetworkAdapter ws)
         {
@@ -242,6 +261,13 @@ public class GameViewModel : ViewModelBase
         set => SetProperty(ref _statusMessage, value);
     }
 
+    /// <summary>出牌阶段的提示文本（仅点提示且无牌可出时显示）</summary>
+    public string HintNoPlayMessage
+    {
+        get => _hintNoPlayMessage;
+        set => SetProperty(ref _hintNoPlayMessage, value);
+    }
+
     public GamePhase CurrentPhase
     {
         get => _currentPhase;
@@ -251,6 +277,7 @@ public class GameViewModel : ViewModelBase
             {
                 // 人机模式始终允许退出；联机模式仅 Idle 阶段可退出
                 IsBackToMenuVisible = GameMode == GameMode.HumanVsAI || value == GamePhase.Idle;
+                OnPropertyChanged(nameof(IsRoomVisibilityToggleEnabled));
             }
         }
     }
@@ -293,9 +320,63 @@ public class GameViewModel : ViewModelBase
         set => SetProperty(ref _landlordLabel, value);
     }
 
+    // ========== 出牌倒计时 ==========
+    private int _turnCountdown;
+    private DispatcherTimer? _countdownTimer;
+    private int _turnTimeoutSeconds = 30;
+
+    public int TurnTimeoutSeconds
+    {
+        get => _turnTimeoutSeconds;
+        set => SetProperty(ref _turnTimeoutSeconds, value);
+    }
+
+    public string TurnCountdownText => _turnCountdown > 0 ? $"{_turnCountdown}s" : "";
+
+    public bool IsCountdownVisible => IsPlayPanelVisible && _turnCountdown > 0 && GameMode == GameMode.Server;
+
+    private void StartCountdown()
+    {
+        if (GameMode != GameMode.Server) return;
+        _turnCountdown = _turnTimeoutSeconds;
+        OnPropertyChanged(nameof(TurnCountdownText));
+        OnPropertyChanged(nameof(IsCountdownVisible));
+
+        _countdownTimer?.Stop();
+        _countdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _countdownTimer.Tick += (_, _) =>
+        {
+            _turnCountdown--;
+            OnPropertyChanged(nameof(TurnCountdownText));
+            if (_turnCountdown <= 0)
+            {
+                _countdownTimer.Stop();
+                _turnCountdown = 0;
+                OnPropertyChanged(nameof(IsCountdownVisible));
+                // 超时自动不出
+                if (IsPlayPanelVisible)
+                    PassPlay();
+            }
+        };
+        _countdownTimer.Start();
+    }
+
+    private void StopCountdown()
+    {
+        _countdownTimer?.Stop();
+        _turnCountdown = 0;
+        OnPropertyChanged(nameof(TurnCountdownText));
+        OnPropertyChanged(nameof(IsCountdownVisible));
+    }
+
     // ========== 提示系统 ==========
     private List<CardCombo> _hints = new();
     private int _hintIndex;
+
+    // ========== 音频服务 ==========
+    private readonly ITtsService _ttsService;
+    private readonly IBgmService _bgmService;
+    private TaskCompletionSource? _ttsReadyTcs;
 
     // ========== 服务器模式：跟踪上一手出牌 ==========
     private CardCombo? _lastServerCombo;
@@ -352,8 +433,11 @@ public class GameViewModel : ViewModelBase
     /// <summary>返回菜单的回调（由 MainViewModel 设置）</summary>
     public Action? RequestNavigateToMenu { get; set; }
 
-    public GameViewModel()
+    public GameViewModel(ITtsService? ttsService = null, IBgmService? bgmService = null)
     {
+        _ttsService = ttsService ?? NullTtsService.Instance;
+        _bgmService = bgmService ?? NullBgmService.Instance;
+
         // 默认昵称
         InitializePlayers("玩家", "电脑A", "电脑B");
 
@@ -422,6 +506,10 @@ public class GameViewModel : ViewModelBase
 
     private void StartNewGame()
     {
+        // 重置 TTS 状态
+        _ttsReadyTcs?.TrySetResult();
+        _ttsReadyTcs = null;
+
         // 取消进行中的发牌动画，清理残留状态
         _dealCts?.Cancel();
         _dealCts?.Dispose();
@@ -551,6 +639,8 @@ public class GameViewModel : ViewModelBase
 
     private void PlaySelectedCards()
     {
+        HintNoPlayMessage = "";
+        StopCountdown();
         var selected = _selectionCache.GetSelectedCardModels(PlayerBottom.Hand);
 
         if (selected.Count == 0) return;
@@ -605,6 +695,8 @@ public class GameViewModel : ViewModelBase
 
     private async void PassPlay()
     {
+        HintNoPlayMessage = "";
+        StopCountdown();
         if (GameMode == GameMode.Server && _networkAdapter != null)
         {
             // 服务器模式：发送给服务器，等服务器确认后再隐藏面板
@@ -668,9 +760,12 @@ public class GameViewModel : ViewModelBase
 
         if (_hints.Count == 0)
         {
-            StatusMessage = "没有可以出的牌，请选择不出";
+            HintNoPlayMessage = "没有可以出的牌，请选择不出";
             return;
         }
+
+        // 有可出的牌，清除无牌提示
+        HintNoPlayMessage = "";
 
         // 清除所有选中状态
         _selectionCache.Clear();
@@ -686,7 +781,6 @@ public class GameViewModel : ViewModelBase
         _selectionCache.ApplyToHand(PlayerBottom.Hand);
 
         _hintIndex++;
-        StatusMessage = $"提示 {_hintIndex}/{_hints.Count}: {hint.GetDescription()}";
     }
 
     // ========== 游戏事件处理 ==========
@@ -770,6 +864,8 @@ public class GameViewModel : ViewModelBase
                 IsPlayPanelVisible = true;
                 _hints = new List<CardCombo>();
                 _hintIndex = 0;
+                HintNoPlayMessage = "";
+                HintNoPlayMessage = "";
 
                 // 将缓存的选中状态应用到 Hand
                 _selectionCache.ApplyToHand(PlayerBottom.Hand);
@@ -806,6 +902,17 @@ public class GameViewModel : ViewModelBase
             foreach (var card in combo.Cards)
             {
                 player.PlayedCards.Add(new CardViewModel(card, true) { IsPlayable = false });
+            }
+
+            // TTS 播报出牌内容（仅本地模式下触发，服务器模式由客户端自行播报）
+            if (GameMode != GameMode.Server && _ttsService.IsAvailable)
+            {
+                _ttsReadyTcs = new TaskCompletionSource();
+                var ttsText = combo.GetDescription();
+                _ttsService.SpeakAsync(ttsText).ContinueWith(_ =>
+                {
+                    _ttsReadyTcs?.TrySetResult();
+                }, TaskScheduler.Default);
             }
         }
     }
@@ -936,6 +1043,14 @@ public class GameViewModel : ViewModelBase
     private void OnAiTimerTick(object? sender, EventArgs e)
     {
         _aiTimer.Stop();
+
+        // TTS 尚未播放完毕时，等待 100ms 后重试
+        if (_ttsReadyTcs != null && !_ttsReadyTcs.Task.IsCompleted)
+        {
+            _aiTimer.Interval = TimeSpan.FromMilliseconds(100);
+            _aiTimer.Start();
+            return;
+        }
 
         var (playerIndex, isBidding) = ((int, bool))_aiTimer.Tag!;
         AllPlayers[playerIndex].IsThinking = false;
@@ -1684,6 +1799,10 @@ public class GameViewModel : ViewModelBase
         string phase = root.GetProperty("phase").GetString() ?? "playing";
         int localSeat = ServerSeatToLocal(serverSeat);
 
+        // 读取出牌超时设置
+        if (root.TryGetProperty("turn_timeout", out var ttEl))
+            TurnTimeoutSeconds = ttEl.GetInt32();
+
         foreach (var p in AllPlayers)
             p.IsCurrentTurn = p.SeatIndex == localSeat;
 
@@ -1718,13 +1837,16 @@ public class GameViewModel : ViewModelBase
                 IsPlayPanelVisible = true;
                 _hints = new List<CardCombo>();
                 _hintIndex = 0;
+                HintNoPlayMessage = "";
                 _selectionCache.ApplyToHand(PlayerBottom.Hand);
                 CommandManager.InvalidateRequerySuggested();
                 StatusMessage = "你的回合，请出牌";
+                StartCountdown();
             }
             else
             {
                 IsPlayPanelVisible = false;
+                StopCountdown();
                 AllPlayers[localSeat].IsThinking = true;
                 StatusMessage = $"{AllPlayers[localSeat].Name} 思考中...";
             }
@@ -1902,6 +2024,12 @@ public class GameViewModel : ViewModelBase
     /// </summary>
     public void Cleanup()
     {
+        // 停止倒计时、TTS 和 BGM
+        StopCountdown();
+        _ttsReadyTcs?.TrySetResult();
+        _ttsReadyTcs = null;
+        _bgmService.Stop();
+
         // 停止AI定时器
         _aiTimer.Stop();
         _aiTimer.Tick -= OnAiTimerTick;

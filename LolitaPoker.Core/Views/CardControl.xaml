@@ -11,7 +11,7 @@
             Background="White">
         <Border.RenderTransform>
             <TransformGroup>
-                <ScaleTransform x:Name="CardScale" CenterX="35" CenterY="50"
+                <ScaleTransform x:Name="CardScale" CenterX="44.5" CenterY="63"
                                 ScaleX="1" ScaleY="1"/>
                 <TranslateTransform x:Name="CardTransform" X="0" Y="0"/>
             </TransformGroup>

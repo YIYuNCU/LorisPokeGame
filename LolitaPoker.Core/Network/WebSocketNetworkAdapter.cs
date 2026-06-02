@@ -86,6 +86,9 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
     /// <summary>房间可见性（创建时设置）</summary>
     public bool IsPublicRoom { get; set; } = true;
 
+    /// <summary>是否为房间创建者</summary>
+    public bool IsRoomCreator { get; set; }
+
     public event Action<NetworkMessage>? OnMessageReceived;
     public event Action<bool>? OnConnectionStateChanged;
     public event Action<string, bool>? OnPlayerPresenceChanged;

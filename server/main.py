@@ -46,6 +46,52 @@ async def broadcast_to_room(room: Room, message: dict, exclude_player: str = Non
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def cancel_turn_timer(room: Room):
+    """取消当前出牌超时计时器"""
+    if room._turn_timeout_task and not room._turn_timeout_task.done():
+        room._turn_timeout_task.cancel()
+        room._turn_timeout_task = None
+
+
+async def start_turn_timer(room: Room):
+    """为当前出牌玩家启动超时计时器，超时自动不出"""
+    cancel_turn_timer(room)
+    if room.turn_timeout <= 0 or not room.game or room.game_paused:
+        return
+
+    timeout = room.turn_timeout
+
+    async def _timeout_pass():
+        try:
+            await asyncio.sleep(timeout)
+        except asyncio.CancelledError:
+            return
+        # 超时：自动不出
+        if not room.game or room.game_paused:
+            return
+        game_data = room.game.get_game_data()
+        current_seat = game_data.get("current_player", -1)
+        phase = game_data.get("phase", "")
+        if phase != "playing":
+            return
+        logger.info(f"房间 {room.room_code} 座位 {current_seat} 出牌超时({timeout}s)，自动不出")
+        action = room.game.submit_pass(current_seat)
+        for msg in action.messages:
+            msg_type = msg.get("type", "")
+            payload = msg.get("payload", {})
+            if msg.get("broadcast"):
+                await broadcast_to_room(room, {"type": msg_type, "payload": payload})
+            if msg_type == "turn_change":
+                start_turn_timer_soon(room)
+
+    room._turn_timeout_task = asyncio.ensure_future(_timeout_pass())
+
+
+def start_turn_timer_soon(room: Room):
+    """安全地调度 start_turn_timer（避免嵌套 await 问题）"""
+    asyncio.ensure_future(start_turn_timer(room))
+
+
 async def broadcast_lobby_update():
     """向所有不在房间内的客户端广播房间列表更新"""
     public_rooms = room_manager.get_public_rooms()
@@ -337,7 +383,13 @@ async def handle_dealing_complete(player_id: str):
     if len(room.dealing_ready) >= room.player_count and room.pending_turn_change:
         msg = room.pending_turn_change
         room.pending_turn_change = None
+        # 注入出牌超时
+        if msg.get("type") == "turn_change" and msg.get("payload", {}).get("phase") == "playing":
+            msg["payload"]["turn_timeout"] = room.turn_timeout
         await broadcast_to_room(room, msg)
+        # 出牌阶段启动超时计时器
+        if msg.get("type") == "turn_change" and msg.get("payload", {}).get("phase") == "playing":
+            start_turn_timer_soon(room)
         logger.info(f"房间 {room.room_code} 所有玩家就绪，下发叫分指令")
 
 
@@ -380,6 +432,9 @@ async def handle_play(websocket: WebSocket, player_id: str, payload: dict):
         return
 
     cards = [Card(suit=c.suit, rank=c.rank) for c in data.cards]
+    # 取消当前出牌超时（玩家已行动）
+    cancel_turn_timer(room)
+
     result = room.game.submit_play(player.seat, cards)
     await _dispatch_game_messages(room, result.messages)
 
@@ -394,6 +449,9 @@ async def handle_pass(websocket: WebSocket, player_id: str, payload: dict):
     player = room.players.get(player_id)
     if not player:
         return
+
+    # 取消当前出牌超时（玩家已行动）
+    cancel_turn_timer(room)
 
     result = room.game.submit_pass(player.seat)
     await _dispatch_game_messages(room, result.messages)
@@ -422,8 +480,14 @@ async def _dispatch_game_messages(room: Room, messages: list[dict]):
             continue
 
         if msg.get("broadcast"):
+            # 注入出牌超时到 turn_change
+            if msg_type == "turn_change" and payload.get("phase") == "playing":
+                payload["turn_timeout"] = room.turn_timeout
             # 广播给所有人
             await broadcast_to_room(room, {"type": msg_type, "payload": payload})
+            # 出牌阶段 turn_change 时启动超时计时器
+            if msg_type == "turn_change" and payload.get("phase") == "playing":
+                start_turn_timer_soon(room)
         elif "target" in msg:
             # 定向发送
             target_seat = msg["target"]

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Threading;
+using LolitaPoker.Core.Audio;
 using LolitaPoker.Core.ViewModels;
 
 namespace LolitaPoker.Core.Views;
@@ -9,9 +10,9 @@ public partial class DoudizhuMainWindow : Window
 {
     public MainViewModel ViewModel { get; }
 
-    public DoudizhuMainWindow()
+    public DoudizhuMainWindow(ITtsService? ttsService = null, IBgmService? bgmService = null)
     {
-        ViewModel = new MainViewModel();
+        ViewModel = new MainViewModel(ttsService, bgmService);
         DataContext = ViewModel;
         InitializeComponent();
     }

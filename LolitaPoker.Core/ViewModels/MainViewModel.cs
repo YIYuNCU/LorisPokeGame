@@ -3,6 +3,7 @@
 // 管理视图切换：模式选择 ↔ 网络设置 ↔ 游戏桌面
 // -----------------------------------------------------------------------
 
+using LolitaPoker.Core.Audio;
 using LolitaPoker.Core.Enums;
 using LolitaPoker.Core.Network;
 
@@ -14,6 +15,8 @@ namespace LolitaPoker.Core.ViewModels;
 public class MainViewModel : ViewModelBase
 {
     private ViewModelBase _currentViewModel;
+    private readonly ITtsService _ttsService;
+    private readonly IBgmService _bgmService;
 
     public ViewModelBase CurrentViewModel
     {
@@ -21,8 +24,10 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _currentViewModel, value);
     }
 
-    public MainViewModel()
+    public MainViewModel(ITtsService? ttsService = null, IBgmService? bgmService = null)
     {
+        _ttsService = ttsService ?? NullTtsService.Instance;
+        _bgmService = bgmService ?? NullBgmService.Instance;
         _currentViewModel = CreateModeSelectViewModel();
     }
 
@@ -46,7 +51,7 @@ public class MainViewModel : ViewModelBase
     /// </summary>
     private void NavigateToGame(GameMode mode, INetworkAdapter? adapter, string playerName, string address, int port, string roomCode)
     {
-        var gameVm = new GameViewModel();
+        var gameVm = new GameViewModel(_ttsService, _bgmService);
         gameVm.GameMode = mode;
 
         switch (mode)
@@ -66,10 +71,11 @@ public class MainViewModel : ViewModelBase
             gameVm.RoomCode = roomCode;
         }
 
-        // 服务器模式：从适配器同步房间可见性
+        // 服务器模式：从适配器同步房间可见性和创建者身份
         if (mode == GameMode.Server && adapter is WebSocketNetworkAdapter wsAdapterInit)
         {
             gameVm.IsPublicRoom = wsAdapterInit.IsPublicRoom;
+            gameVm.IsRoomCreator = wsAdapterInit.IsRoomCreator;
         }
 
         if (adapter != null)

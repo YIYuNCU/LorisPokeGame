@@ -328,6 +328,7 @@ public class NetworkSettingsViewModel : ViewModelBase
                 if (success)
                 {
                     adapter.IsPublicRoom = IsPublicRoom;
+                    adapter.IsRoomCreator = true;
                     ConnectionStatus = $"房间已创建: {adapter.RoomCode}";
                     ConnectionStatusColor = "#27ae60";
                 }

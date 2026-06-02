@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 对自己的称呼从"我"改成"本喵"。
 - 每次修改代码文件后，必须运行 `dotnet build LolitaPoker.sln` 检查编译是否通过，编译通过的话说"编译通过了喵"。
 - 每次修改代码文件后，必须更新此文档的描述。
-- 每次更新代码后，需运行或补充后运行测试文件以检查修改后的部分是否存在漏洞。
+- 每次更新代码后，需运行或补充后运行与本次修改部分代码相关的测试文件以检查修改后的部分是否存在漏洞。
 - 每次更新测试文件后，考虑原本的测试文件是否需要同步更新。
 
 ## 项目概述
@@ -207,6 +207,12 @@ LolitaPoker.Core/
     ├── CardImageProvider.cs     # 图片缓存和加载
     └── FallbackCardRenderer.cs  # 备用卡牌渲染
 
+LolitaPoker.Core/Audio/  # 音频服务接口
+├── ITtsService.cs       # TTS 服务接口（SpeakAsync + IsAvailable）
+├── NullTtsService.cs    # 默认空 TTS 实现（IsAvailable=false，立即返回）
+├── IBgmService.cs       # BGM 服务接口（PlayAsync/Stop/Volume/IsPlaying）
+└── NullBgmService.cs    # 默认空 BGM 实现（不播放任何音频）
+
 LolitaPoker.Tests/   # xUnit 单元测试项目
 ├── CardHelperTests.cs           # 卡牌工具类测试（CreateFullDeck, GetDisplayName, SortHand）
 ├── RulesEngineTests.cs          # 规则引擎测试（14种牌型识别 + CanBeat 比较逻辑）
@@ -284,7 +290,8 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - 应用壳视图模型，持有 `CurrentViewModel` 属性
 - 通过 WPF 隐式 DataTemplate 自动切换 `ModeSelectView` ↔ `NetworkSettingsView` ↔ `GameTableControl`
 - 三级导航：模式选择 → 网络设置（P2P/服务器各一页） → 游戏桌面
-- 创建 `GameViewModel` 时注入 `GameMode`、`INetworkAdapter` 和返回菜单回调
+- **音频服务注入**：构造函数接收 `ITtsService?` 和 `IBgmService?`，传递给 GameViewModel
+- 创建 `GameViewModel` 时注入 `GameMode`、`INetworkAdapter`、返回菜单回调和音频服务
 - `NavigateToGame` 中从 `WebSocketNetworkAdapter.IsPublicRoom` 同步房间可见性到 `GameViewModel`
 - `NavigateToSettings` 和 `NavigateToMenu` 中调用 `NetworkSettingsViewModel.Cleanup()` 断开大厅适配器
 
@@ -334,10 +341,16 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - 游戏主视图模型，连接GameManager、AI和UI
 - 管理选牌状态、提示系统和AI延时
 - 支持三种模式：`GameMode.HumanVsAI`、`GameMode.P2P`、`GameMode.Server`
+- **音频服务注入**：构造函数接收 `ITtsService?` 和 `IBgmService?`（可选，默认 NullTtsService/NullBgmService）
+- **TTS 播报**：出牌时异步调用 `_ttsService.SpeakAsync(combo.GetDescription())`，AI 出牌等待 TTS 完成后再执行
+- **BGM 控制**：`_bgmService` 预留注入，Cleanup 时自动 Stop
 - `RoomCode` 属性：服务器模式下存储房间号，绑定到顶部显示
 - `IsPublicRoom` 属性：服务器模式下房间是否公开，绑定到顶部可见性标签
 - `RoomVisibilityText` 计算属性：返回 "🟢 公开" 或 "🔴 私密"
-- `ToggleRoomVisibility()` 方法：切换公开/私密状态，通过 `WebSocketNetworkAdapter.SetRoomVisibilityAsync` 发送给服务器
+- `ToggleRoomVisibility()` 方法：仅创建者 + 游戏未开始时可用
+- `IsRoomCreator` 属性：是否为房间创建者，由 `WebSocketNetworkAdapter.IsRoomCreator` 同步
+- `IsRoomVisibilityToggleEnabled` 计算属性：`IsRoomCreator && (Idle || GameOver)`
+- **出牌倒计时**：服务器模式下出牌回合启动 `TurnTimeoutSeconds`（默认 30s）倒计时，超时自动不出；`TurnCountdownText`/`IsCountdownVisible` 驱动 UI 显示
 - `IsBackToMenuVisible` 属性：由 `CurrentPhase` setter 自动更新，仅 Idle 阶段为 true
 - **断线投票**：`IsVoteVisible`/`VoteMessage`/`VoteStatusMessage` 控制投票面板；`VoteEndCommand`/`VoteContinueCommand` 发送投票
 - **重连处理**：`HandleServerReconnected` 恢复手牌、对手牌数、地主信息、当前回合等完整游戏状态
@@ -375,12 +388,15 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 
 **DoudizhuMainWindow** (Views/DoudizhuMainWindow.xaml)
 - 主窗口使用 ContentControl + 隐式 DataTemplate
+- 窗口尺寸 1000×680，最小 800×560
 - `ModeSelectViewModel` → `ModeSelectView`（模式选择）
 - `NetworkSettingsViewModel` → `NetworkSettingsView`（连接设置）
 - `GameViewModel` → `GameTableControl`（游戏桌面）
 
 **CardControl** (Views/CardControl.xaml)
 - 卡牌控件，支持选中高亮、正反面切换
+- **自适应尺寸**：Width/Height 由 `GameTableControl.CardWidth`/`CardHeight` 静态属性控制，通过 `CardSizeChanged` 事件同步更新 `ScaleTransform` 中心
+- **选中上移量**：由 `GameTableControl.SelectionLift` 动态计算（约为卡牌宽度的 22%）
 - **动画系统**：所有动画由 code-behind 中的 Storyboard 驱动，响应 `CardViewModel.AnimationState` 变化
   - Gathering：TranslateX 收拢动画（CubicEase）
   - Revealing：ScaleX 翻牌（1→0→1）+ 背面/正面淡变；动画完成后通过 `BeginAnimation(null)` 清除 HoldEnd
@@ -396,10 +412,12 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 
 **GameTableControl** (Views/GameTableControl.xaml)
 - 游戏桌面控件，5行 Grid 布局：菜单栏 / AI信息+底牌 / 出牌展示 / 玩家出牌 / 手牌+操作
+- **卡牌自适应**：手牌尺寸由 `RecalcCardSize` 根据窗口宽度阻尼缩放（基准 89px@1000w，阻尼 0.5），`CardWidth`/`CardHeight`/`CardNegativeMargin`/`SelectionLift` 为静态属性，CardControl 通过 `CardSizeChanged` 事件响应
+- **按钮在手牌上方**：操作按钮行（出牌/不出/提示）位于手牌展示区上方，手牌区顶部留有选牌上移空间
 - **菜单栏**（Row 0）：左侧「← 返回主页」按钮（游戏开始后禁用变灰），右侧服务器模式显示房间号 + **可见性标签**（点击切换公开/私密）
-- **洗牌动画**：通过 `ShuffleCanvas` 叠加层展示牌背交错洗牌效果（1.2s），完成后淡出并触发发牌
+- **洗牌动画**：通过 `ShuffleCanvas` 叠加层展示牌背交错洗牌效果（卡牌 89×126），完成后淡出并触发发牌
 - **断线投票面板**：全屏半透明叠加层，显示断线玩家名、「结束对局」和「等待重连」按钮、投票状态
-- **返回菜单按钮**：右上角悬浮按钮，通过 `BackToMenuCommand` 返回模式选择界面
+- **出牌阶段提示**：手牌上方 StatusMessage TextBlock，仅出牌阶段可见，用于显示"没有可以出的牌"等提示
 
 ### 服务器模块
 
@@ -416,8 +434,10 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - **`Room.reconnect_tokens`**：断线玩家重连令牌（player_id → ReconnectToken）
 - **`Room.vote_state`**：断线投票状态（player_id → "end"/"continue"）
 - **`Room.game_paused`**：游戏是否因断线投票而暂停
+- **`Room.creator_id`**：房间创建者 player_id（仅创建者可修改可见性）
+- **`Room.turn_timeout`**：出牌超时秒数（默认 30），超时自动不出
 - **`get_public_rooms()`**：返回公开房间列表（含房间码、人数、玩家名）
-- **`set_room_visibility(player_id, is_public)`**：设置房间可见性
+- **`set_room_visibility(player_id, is_public)`**：设置房间可见性（仅创建者+游戏未开始时允许）
 - **`store_reconnect_token(player_id)`**：游戏中断线时存储重连令牌，移除玩家连接但保留座位
 - **`try_reconnect(player_id, websocket)`**：尝试用原玩家ID重连，恢复座位和连接
 - **`has_reconnect_token(player_id)`**：检查是否有待恢复的重连令牌

@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
@@ -20,14 +21,58 @@ public partial class GameTableControl : UserControl
     private CardViewModel? _dragStartCard;
     private CardControl? _lastDragCard;
 
-    // 负边距值，与 XAML 中的 Margin="-35,0,0,0" 一致
-    private const double CardNegativeMargin = -35;
-    private const double CardWidth = 70;
+    // 动态卡牌尺寸（由 SizeChanged 更新）
+    internal static double CardWidth { get; private set; } = 89;
+    internal static double CardHeight { get; private set; } = 126;
+    internal static double CardNegativeMargin { get; private set; } = -44.5;
+    // 出牌区/底牌尺寸（与手牌等比缩放）
+    internal static double PlayedWidth { get; private set; } = 61;
+    internal static double PlayedHeight { get; private set; } = 86;
+    internal static double PlayedMargin { get; private set; } = -26;
+    internal static double AiPlayedWidth { get; private set; } = 58;
+    internal static double AiPlayedHeight { get; private set; } = 82;
+    internal static double AiPlayedMargin { get; private set; } = -21;
+    internal static double LandlordWidth { get; private set; } = 42;
+    internal static double LandlordHeight { get; private set; } = 59;
+
+    // 卡牌宽高比
+    private const double CardAspect = 105.0 / 74.0; // ≈1.419
+
+    // 设计基准窗口宽度
+    private const double DesignWidth = 1000;
+    // 基础缩放阻尼系数
+    private const double BaseDampen = 0.5;
+    // 牌多时额外阻尼（每多1张增加 0.1，仅考虑17~20张）
+    private const double ExtraDampenPerCard = 0.1;
+    // 阻尼上限（0.5 + 3×0.1 = 0.8，对应20张牌）
+    private const double MaxDampen = 0.8;
+    // 当前手牌数量（用于动态阻尼）
+    private int _handCount = 17;
+
+    // 选牌上移量
+    internal static double SelectionLift { get; private set; } = 16;
+    // 身份区动态尺寸（基准值 ×0.8）
+    internal static double IdentityFontSize { get; private set; } = 12.8;
+    internal static double IdentityPaddingH { get; private set; } = 16;
+    internal static double IdentityPaddingV { get; private set; } = 4.8;
+    internal static double IdentityCornerRadius { get; private set; } = 11.2;
+    // 操作按钮动态尺寸（基准 ×0.8，减小缩放比例）
+    internal static double ButtonWidth { get; private set; } = 96;
+    internal static double ButtonHeight { get; private set; } = 35;
+    internal static double ButtonFontSize { get; private set; } = 14.4;
+    internal static double ButtonPaddingH { get; private set; } = 16;
+    internal static double ButtonPaddingV { get; private set; } = 6.4;
+    internal static double ButtonMargin { get; private set; } = 8;
+
+    // 尺寸变化事件，通知 CardControl 更新 ScaleTransform 中心
+    internal static event Action? CardSizeChanged;
 
     public GameTableControl()
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        // 监听自身尺寸变化（窗口缩小时也会触发）
+        SizeChanged += OnControlSizeChanged;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -43,6 +88,210 @@ public partial class GameTableControl : UserControl
 
         // 绑定手牌区域的拖拽选中事件
         AttachDragHandlers();
+
+        // 手牌数量变化时刷新卡牌尺寸（防止新建的 CardControl 使用 XAML 默认值）
+        HandItemsControl.ItemContainerGenerator.StatusChanged += OnHandContainerStatusChanged;
+
+        // 初始计算卡牌尺寸
+        RecalcCardSize(ActualWidth);
+    }
+
+    private void OnHandContainerStatusChanged(object? sender, EventArgs e)
+    {
+        if (HandItemsControl.ItemContainerGenerator.Status == System.Windows.Controls.Primitives.GeneratorStatus.ContainersGenerated)
+        {
+            int newCount = HandItemsControl.Items.Count;
+            bool countChanged = newCount != _handCount && newCount > 0;
+            _handCount = newCount > 0 ? newCount : _handCount;
+
+            if (countChanged)
+                RecalcCardSize(ActualWidth);
+            else
+                Dispatcher.BeginInvoke(() => RefreshHandCardSizes(), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
+    private void OnControlSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        RecalcCardSize(e.NewSize.Width);
+    }
+
+    /// <summary>
+    /// 根据窗口宽度动态计算卡牌尺寸，阻尼缩放，保持宽高比。
+    /// </summary>
+    private void RecalcCardSize(double controlWidth)
+    {
+        if (controlWidth < 1) return;
+
+        // 基于宽度的比例缩放 + 动态阻尼（牌越多缩得越狠）
+        double baseW = 89.0;
+        double extraDampen = Math.Max(0, _handCount - 17) * ExtraDampenPerCard;
+        double dampen = Math.Min(BaseDampen + extraDampen, MaxDampen);
+        double ratio = controlWidth / DesignWidth;
+        double dampedRatio = 1.0 + (ratio - 1.0) * dampen;
+        double cardW = baseW * dampedRatio;
+
+        // 限制范围
+        cardW = Math.Max(40, Math.Min(cardW, 110));
+        double cardH = Math.Round(cardW * CardAspect, 1);
+        cardW = Math.Round(cardW, 1);
+
+        if (Math.Abs(cardW - CardWidth) < 0.5) return;
+
+        CardWidth = cardW;
+        CardHeight = cardH;
+        CardNegativeMargin = -Math.Round(cardW * 0.5, 1);
+        SelectionLift = Math.Round(cardW * 0.22, 1);
+
+        // 出牌区/底牌等比缩放（AI出牌放大20%）
+        PlayedWidth = Math.Round(cardW * 0.685, 1);
+        PlayedHeight = Math.Round(cardH * 0.685, 1);
+        PlayedMargin = -Math.Round(PlayedWidth * 0.43, 1);
+        AiPlayedWidth = Math.Round(cardW * 0.626, 1);
+        AiPlayedHeight = Math.Round(cardH * 0.626, 1);
+        AiPlayedMargin = -Math.Round(AiPlayedWidth * 0.36, 1);
+        LandlordWidth = Math.Round(cardW * 0.472, 1);
+        LandlordHeight = Math.Round(cardH * 0.472, 1);
+
+        // 身份区跟随缩放
+        double scale = cardW / 89.0;
+        IdentityFontSize = Math.Round(Math.Min(12.8 * scale, 16), 1);
+        IdentityPaddingH = Math.Round(Math.Min(16 * scale, 20), 1);
+        IdentityPaddingV = Math.Round(Math.Min(4.8 * scale, 6), 1);
+        IdentityCornerRadius = Math.Round(Math.Min(11.2 * scale, 14), 1);
+
+        // 操作按钮跟随缩放（缩放比例减半，上限限制）
+        double btnScale = 1.0 + (scale - 1.0) * 0.5;
+        ButtonWidth = Math.Round(Math.Min(96 * btnScale, 110), 1);
+        ButtonHeight = Math.Round(Math.Min(35 * btnScale, 42), 1);
+        ButtonFontSize = Math.Round(Math.Min(14.4 * btnScale, 17), 1);
+        ButtonPaddingH = Math.Round(Math.Min(16 * btnScale, 20), 1);
+        ButtonPaddingV = Math.Round(Math.Min(6.4 * btnScale, 8), 1);
+        ButtonMargin = Math.Round(Math.Min(8 * btnScale, 10), 1);
+
+        // 刷新已有手牌控件尺寸
+        RefreshHandCardSizes();
+        RefreshAllCardSizes();
+        RefreshIdentityControls();
+
+        CardSizeChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 更新身份区（昵称/角色标签）和操作按钮的尺寸。
+    /// 遍历 Row 4 的 Grid 查找 Border 和 Button 并更新。
+    /// </summary>
+    private void RefreshIdentityControls()
+    {
+        // 找到操作按钮行的 Grid（Row 4 内的第二个子元素）
+        var row4Stack = GameGrid.Children
+            .OfType<StackPanel>()
+            .FirstOrDefault(sp => Grid.GetRow(sp) == 4);
+        if (row4Stack == null) return;
+
+        var identityGrid = row4Stack.Children.OfType<Grid>().FirstOrDefault();
+        if (identityGrid == null) return;
+
+        // 更新身份区 Border
+        var identityStack = identityGrid.Children
+            .OfType<StackPanel>()
+            .FirstOrDefault(sp => Grid.GetColumn(sp) == 0);
+        if (identityStack != null)
+        {
+            foreach (var border in identityStack.Children.OfType<Border>())
+            {
+                border.CornerRadius = new CornerRadius(IdentityCornerRadius);
+                border.Padding = new Thickness(IdentityPaddingH, IdentityPaddingV, IdentityPaddingH, IdentityPaddingV);
+                var tb = border.Child as TextBlock;
+                if (tb != null)
+                    tb.FontSize = IdentityFontSize;
+            }
+        }
+
+        // 更新操作按钮
+        var buttonStack = identityGrid.Children
+            .OfType<StackPanel>()
+            .FirstOrDefault(sp => Grid.GetColumn(sp) == 1);
+        if (buttonStack != null)
+        {
+            foreach (var btn in buttonStack.Children.OfType<Button>())
+            {
+                btn.Width = ButtonWidth;
+                btn.Height = ButtonHeight;
+                btn.FontSize = ButtonFontSize;
+                btn.Margin = new Thickness(ButtonMargin);
+                // 更新模板内的 Border Padding
+                if (btn.Template.FindName("border", btn) is Border bd)
+                    bd.Padding = new Thickness(ButtonPaddingH, ButtonPaddingV, ButtonPaddingH, ButtonPaddingV);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 更新所有手牌 CardControl 的 Width/Height 和容器 Margin。
+    /// </summary>
+    private void RefreshHandCardSizes()
+    {
+        if (HandItemsControl == null) return;
+
+        // 更新 ItemsControl 自身的左间距（为选牌上移留空间）
+        double topPad = SelectionLift + 10;
+        HandItemsControl.Margin = new Thickness(CardWidth * 0.5, topPad, 10, 0);
+
+        foreach (var item in HandItemsControl.Items)
+        {
+            var container = HandItemsControl.ItemContainerGenerator.ContainerFromItem(item) as ContentPresenter;
+            if (container == null) continue;
+
+            // 更新容器负边距
+            container.Margin = new Thickness(CardNegativeMargin, 0, 0, 0);
+
+            // 更新卡牌尺寸
+            var card = FindChildOfType<CardControl>(container);
+            if (card != null)
+            {
+                card.Width = CardWidth;
+                card.Height = CardHeight;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 更新所有出牌区/底牌 CardControl 的 Width/Height（遍历可视化树）。
+    /// </summary>
+    private void RefreshAllCardSizes()
+    {
+        RefreshCardSizesRecursive(this);
+    }
+
+    private void RefreshCardSizesRecursive(DependencyObject parent)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is CardControl card)
+            {
+                // 根据当前尺寸判断属于哪个区域并更新
+                // 手牌由 RefreshHandCardSizes 单独处理，这里处理其余
+                if (Math.Abs(card.Width - PlayedWidth) < 1 || Math.Abs(card.Width - 61) < 1)
+                {
+                    card.Width = PlayedWidth;
+                    card.Height = PlayedHeight;
+                }
+                else if (Math.Abs(card.Width - AiPlayedWidth) < 1 || Math.Abs(card.Width - 58) < 1)
+                {
+                    card.Width = AiPlayedWidth;
+                    card.Height = AiPlayedHeight;
+                }
+                else if (Math.Abs(card.Width - LandlordWidth) < 1 || Math.Abs(card.Width - 42) < 1)
+                {
+                    card.Width = LandlordWidth;
+                    card.Height = LandlordHeight;
+                }
+            }
+            RefreshCardSizesRecursive(child);
+        }
     }
 
     private void OnShuffleRequested()
@@ -68,8 +317,9 @@ public partial class GameTableControl : UserControl
         if (canvasW < 1) canvasW = 600;
         if (canvasH < 1) canvasH = 400;
 
-        double cardW = 85;
-        double cardH = 120;
+        // 洗牌动画卡牌尺寸跟随当前动态尺寸（略大于手牌）
+        double cardW = CardWidth * 1.2;
+        double cardH = CardHeight * 1.2;
         double centerX = (canvasW - cardW) / 2;
         double centerY = (canvasH - cardH) / 2;
 

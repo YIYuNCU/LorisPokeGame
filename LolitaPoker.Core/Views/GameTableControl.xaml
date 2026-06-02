@@ -16,14 +16,15 @@
         </Style>
 
         <Style x:Key="ActionButton" TargetType="Button">
-            <Setter Property="Width" Value="100"/>
-            <Setter Property="Height" Value="40"/>
-            <Setter Property="Margin" Value="8"/>
-            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="Width" Value="120"/>
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="Margin" Value="10"/>
+            <Setter Property="FontSize" Value="18"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background" Value="#4a6fa5"/>
             <Setter Property="BorderBrush" Value="#2c3e50"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -31,8 +32,8 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="1"
-                                CornerRadius="8"
-                                Padding="16,8">
+                                CornerRadius="10"
+                                Padding="20,8">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -61,9 +62,9 @@
         </Style>
 
         <Style x:Key="NewGameButton" TargetType="Button" BasedOn="{StaticResource ActionButton}">
-            <Setter Property="Width" Value="160"/>
+            <Setter Property="Width" Value="180"/>
             <Setter Property="Height" Value="50"/>
-            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="FontSize" Value="20"/>
             <Setter Property="Background" Value="#f39c12"/>
         </Style>
     </UserControl.Resources>
@@ -137,9 +138,10 @@
 
                     <!-- 房间可见性切换 -->
                     <Border x:Name="VisibilityBorder" Background="#222" CornerRadius="4" Padding="8,2"
-                            BorderBrush="#555" BorderThickness="1" Cursor="Hand"
+                            BorderBrush="#555" BorderThickness="1"
                             Margin="6,0,0,0" MouseLeftButtonDown="OnVisibilityToggle"
-                            Visibility="{Binding IsServerMode, Converter={StaticResource BoolToVis}}">
+                            Visibility="{Binding IsServerMode, Converter={StaticResource BoolToVis}}"
+                            IsEnabled="{Binding IsRoomVisibilityToggleEnabled}">
                         <TextBlock Text="{Binding RoomVisibilityText}" Foreground="#aaa" FontSize="12"
                                    VerticalAlignment="Center"/>
                     </Border>
@@ -202,7 +204,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <views:CardControl Width="40" Height="56" IsHitTestVisible="False"/>
+                            <views:CardControl Width="42" Height="59" IsHitTestVisible="False"/>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -262,7 +264,7 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <views:CardControl Width="55" Height="78"/>
+                            <views:CardControl Width="56" Height="79"/>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -339,7 +341,7 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <views:CardControl Width="55" Height="78"/>
+                            <views:CardControl Width="56" Height="79"/>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -358,33 +360,63 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemContainerStyle>
                     <Style TargetType="ContentPresenter">
-                        <Setter Property="Margin" Value="-25,0,0,0"/>
+                        <Setter Property="Margin" Value="-26,0,0,0"/>
                     </Style>
                 </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <views:CardControl Width="58" Height="82"/>
+                        <views:CardControl Width="61" Height="86"/>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </StackPanel>
 
-        <!-- ==================== 手牌 + 操作按钮 ==================== -->
-        <StackPanel Grid.Row="4" Margin="0,5,0,10">
-            <!-- 玩家角色标签 -->
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,5">
-                <Border Background="#4a6fa5" CornerRadius="12" Padding="12,4">
-                    <TextBlock Text="{Binding PlayerBottom.Name}" Foreground="White" FontSize="14"/>
-                </Border>
-                <Border Background="#FFD700" CornerRadius="12" Padding="10,4" Margin="10,0,0,0">
-                    <TextBlock Text="{Binding PlayerBottom.RoleDisplay}" Foreground="#333" FontSize="13" FontWeight="Bold"/>
-                </Border>
-            </StackPanel>
+        <!-- ==================== 操作按钮 + 手牌 ==================== -->
+        <StackPanel Grid.Row="4" Margin="0,5,0,8" HorizontalAlignment="Center">
+            <!-- 无牌可出提示 -->
+            <TextBlock Text="{Binding HintNoPlayMessage}" Foreground="#FFD700" FontSize="14"
+                       HorizontalAlignment="Center" Margin="0,0,0,3"
+                       Visibility="{Binding IsPlayPanelVisible, Converter={StaticResource BoolToVis}}"/>
 
-            <!-- 手牌展示 -->
+            <!-- 操作按钮行（角色标签 + 按钮 + 倒计时） -->
+            <Grid Margin="20,0,0,2" HorizontalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <!-- 玩家角色标签（垂直居中） -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                    <Border Background="#4a6fa5" CornerRadius="14" Padding="20,6" Margin="0,0,10,0">
+                        <TextBlock Text="{Binding PlayerBottom.Name}" Foreground="White"
+                                   FontSize="16" VerticalAlignment="Center"/>
+                    </Border>
+                    <Border Background="#FFD700" CornerRadius="14" Padding="16,6">
+                        <TextBlock Text="{Binding PlayerBottom.RoleDisplay}" Foreground="#333"
+                                   FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </Border>
+                </StackPanel>
+                <!-- 操作按钮（垂直居中） -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                            Visibility="{Binding IsPlayPanelVisible, Converter={StaticResource BoolToVis}}">
+                    <Button Content="出牌" Command="{Binding PlayCardsCommand}" Style="{StaticResource ActionButton}"/>
+                    <Button Content="不出" Command="{Binding PassPlayCommand}" Style="{StaticResource PassButton}"/>
+                    <Button Content="提示" Command="{Binding HintCommand}" Style="{StaticResource HintButton}"/>
+                    <!-- 出牌倒计时 -->
+                    <Border Background="#333" CornerRadius="8" Padding="12,4" Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding IsCountdownVisible, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="{Binding TurnCountdownText}" Foreground="#FFD700"
+                                   FontSize="18" FontWeight="Bold" FontFamily="Consolas"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <!-- 手牌展示（顶部留选牌上移空间） -->
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
-                          MaxHeight="130" HorizontalAlignment="Center" Margin="0,0,0,5">
-                <ItemsControl x:Name="HandItemsControl" ItemsSource="{Binding PlayerBottom.Hand}" Margin="35,18,10,0">
+                          MaxHeight="180" HorizontalAlignment="Center" Margin="0,0,0,15">
+                <ItemsControl x:Name="HandItemsControl" ItemsSource="{Binding PlayerBottom.Hand}"
+                              Margin="45,25,10,0">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal"/>
@@ -392,25 +424,16 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemContainerStyle>
                         <Style TargetType="ContentPresenter">
-                            <Setter Property="Margin" Value="-35,0,0,0"/>
+                            <Setter Property="Margin" Value="-44.5,0,0,0"/>
                         </Style>
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <views:CardControl Width="70" Height="100"/>
+                            <views:CardControl Width="89" Height="126"/>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
-
-            <!-- 操作按钮行 -->
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
-                <StackPanel Orientation="Horizontal" Visibility="{Binding IsPlayPanelVisible, Converter={StaticResource BoolToVis}}">
-                    <Button Content="出牌" Command="{Binding PlayCardsCommand}" Style="{StaticResource ActionButton}"/>
-                    <Button Content="不出" Command="{Binding PassPlayCommand}" Style="{StaticResource PassButton}"/>
-                    <Button Content="提示" Command="{Binding HintCommand}" Style="{StaticResource HintButton}"/>
-                </StackPanel>
-            </StackPanel>
         </StackPanel>
 
         <!-- ==================== 断线投票面板（叠加层） ==================== -->

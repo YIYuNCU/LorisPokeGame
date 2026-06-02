@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -32,6 +33,22 @@ public partial class CardControl : UserControl
 
         if (_sharedCardBack != null)
             CardBackImage.Source = _sharedCardBack;
+
+        // 响应动态卡牌尺寸变化
+        GameTableControl.CardSizeChanged += OnCardSizeChanged;
+        UpdateScaleCenter();
+        Unloaded += (_, _) => GameTableControl.CardSizeChanged -= OnCardSizeChanged;
+    }
+
+    private void OnCardSizeChanged()
+    {
+        UpdateScaleCenter();
+    }
+
+    private void UpdateScaleCenter()
+    {
+        CardScale.CenterX = GameTableControl.CardWidth / 2;
+        CardScale.CenterY = GameTableControl.CardHeight / 2;
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -73,7 +90,7 @@ public partial class CardControl : UserControl
     {
         if (vm.IsSelected)
         {
-            CardTransform.Y = -15;
+            CardTransform.Y = -GameTableControl.SelectionLift;
             SelectionBorder.Visibility = Visibility.Visible;
             CardBorder.BorderBrush = System.Windows.Media.Brushes.Gold;
         }
