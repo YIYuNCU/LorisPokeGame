@@ -378,6 +378,10 @@ public class GameViewModel : ViewModelBase
     private readonly IBgmService _bgmService;
     private TaskCompletionSource? _ttsReadyTcs;
 
+    // ========== 服务器模式：TTS 延迟处理 ==========
+    private string? _deferredTurnChangeType;
+    private string? _deferredTurnChangePayload;
+
     // ========== 服务器模式：跟踪上一手出牌 ==========
     private CardCombo? _lastServerCombo;
     private int _serverConsecutivePasses;
@@ -1349,7 +1353,9 @@ public class GameViewModel : ViewModelBase
                     AllPlayers[localSeat].Name = name;
                 StatusMessage = $"{name} 加入了游戏";
                 SyncLobbyFromAdapter();
-                IsLobbyVisible = true;
+                // 仅游戏未开始时显示大厅
+                if (CurrentPhase == GamePhase.Idle || CurrentPhase == GamePhase.GameOver)
+                    IsLobbyVisible = true;
             });
         }
         catch
@@ -1408,7 +1414,16 @@ public class GameViewModel : ViewModelBase
                     HandleServerPlayerReady(root);
                     break;
                 case "TurnChange":
-                    HandleServerTurnChange(root);
+                    // TTS 播放中则延迟处理 TurnChange
+                    if (_ttsReadyTcs != null && !_ttsReadyTcs.Task.IsCompleted)
+                    {
+                        _deferredTurnChangeType = type;
+                        _deferredTurnChangePayload = payloadJson;
+                    }
+                    else
+                    {
+                        HandleServerTurnChange(root);
+                    }
                     break;
                 case "BidUpdate":
                     HandleServerBidUpdate(root);
@@ -1958,6 +1973,34 @@ public class GameViewModel : ViewModelBase
         {
             AllPlayers[localSeat].CardCount = cardCount;
         }
+
+        // TTS 播报出牌内容
+        if (_ttsService.IsAvailable && _lastServerCombo != null)
+        {
+            _ttsReadyTcs = new TaskCompletionSource();
+            var ttsText = _lastServerCombo.GetDescription();
+            _ttsService.SpeakAsync(ttsText).ContinueWith(_ =>
+            {
+                _ttsReadyTcs?.TrySetResult();
+                // TTS 完成后处理延迟的 TurnChange
+                FlushDeferredTurnChange();
+            }, TaskScheduler.Default);
+        }
+    }
+
+    private void FlushDeferredTurnChange()
+    {
+        if (_deferredTurnChangeType == null) return;
+        var type = _deferredTurnChangeType;
+        var payload = _deferredTurnChangePayload;
+        _deferredTurnChangeType = null;
+        _deferredTurnChangePayload = null;
+
+        Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (type == "TurnChange" && payload != null)
+                DispatchServerMessage(type, payload);
+        });
     }
 
     private void HandleServerPlayerPassed(System.Text.Json.JsonElement root)
@@ -1990,7 +2033,17 @@ public class GameViewModel : ViewModelBase
         _aiTimer.Stop();
         IsPlayPanelVisible = false;
         IsBidPanelVisible = false;
+        StopCountdown();
         CurrentPhase = GamePhase.GameOver;
+
+        // 清空出牌区和手牌
+        foreach (var p in AllPlayers)
+        {
+            p.PlayedCards.Clear();
+            p.LastAction = "";
+            p.IsCurrentTurn = false;
+            p.IsThinking = false;
+        }
 
         bool playerIsLandlord = PlayerBottom.Role == PlayerRole.Landlord;
         string msg;
@@ -2024,11 +2077,10 @@ public class GameViewModel : ViewModelBase
     /// </summary>
     public void Cleanup()
     {
-        // 停止倒计时、TTS 和 BGM
+        // 停止倒计时和 TTS（BGM 由 App 生命周期管理，不停止）
         StopCountdown();
         _ttsReadyTcs?.TrySetResult();
         _ttsReadyTcs = null;
-        _bgmService.Stop();
 
         // 停止AI定时器
         _aiTimer.Stop();

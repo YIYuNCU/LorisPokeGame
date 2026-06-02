@@ -81,8 +81,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="36"/>    <!-- 菜单栏 -->
             <RowDefinition Height="75"/>    <!-- AI信息 + 底牌 -->
-            <RowDefinition Height="*"/>     <!-- 出牌区域 -->
-            <RowDefinition Height="Auto"/>  <!-- 玩家出牌 -->
+            <RowDefinition Height="*" MinHeight="140"/>  <!-- 出牌区域（三人叠加） -->
             <RowDefinition Height="Auto"/>  <!-- 手牌 + 操作按钮 -->
         </Grid.RowDefinitions>
 
@@ -231,7 +230,7 @@
         </Grid>
 
         <!-- ==================== 出牌展示 ==================== -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="2" ClipToBounds="True">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -346,30 +345,31 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </StackPanel>
-        </Grid>
 
-        <!-- ==================== 玩家出牌 ==================== -->
-        <StackPanel Grid.Row="3" HorizontalAlignment="Center" Margin="0,3,0,0" MaxWidth="400">
-            <TextBlock Text="{Binding PlayerBottom.LastAction}" Foreground="#FFD700"
-                       FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,3"/>
-            <ItemsControl ItemsSource="{Binding PlayerBottom.PlayedCards}" HorizontalAlignment="Center">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal"/>
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemContainerStyle>
-                    <Style TargetType="ContentPresenter">
-                        <Setter Property="Margin" Value="-26,0,0,0"/>
-                    </Style>
-                </ItemsControl.ItemContainerStyle>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <views:CardControl Width="61" Height="86"/>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </StackPanel>
+            <!-- 玩家出牌（叠加在中央偏下） -->
+            <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                        Margin="0,0,0,5" MaxWidth="400">
+                <TextBlock Text="{Binding PlayerBottom.LastAction}" Foreground="#FFD700"
+                           FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                <ItemsControl ItemsSource="{Binding PlayerBottom.PlayedCards}" HorizontalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Margin" Value="-26,0,0,0"/>
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <views:CardControl Width="61" Height="86"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Grid>
 
         <!-- ==================== 操作按钮 + 手牌 ==================== -->
         <StackPanel Grid.Row="4" Margin="0,5,0,8" HorizontalAlignment="Center">
