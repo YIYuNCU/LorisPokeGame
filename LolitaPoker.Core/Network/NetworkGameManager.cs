@@ -18,12 +18,23 @@ public class NetworkGameManager
     private readonly GameManager _gameManager;
     private readonly INetworkAdapter _network;
 
+    /// <summary>自定义座位映射（PlayerId → 座位号），由 VPetNetworkAdapter 设置</summary>
+    private readonly Dictionary<string, int> _playerSeatMap = new();
+
     public NetworkGameManager(GameManager gameManager, INetworkAdapter network)
     {
         _gameManager = gameManager;
         _network = network;
 
         _network.OnMessageReceived += HandleNetworkMessage;
+    }
+
+    /// <summary>设置玩家座位映射（用于 VPetLan 模式）</summary>
+    public void SetPlayerSeatMap(Dictionary<string, int> seatMap)
+    {
+        _playerSeatMap.Clear();
+        foreach (var kv in seatMap)
+            _playerSeatMap[kv.Key] = kv.Value;
     }
 
     // ========== 联机事件 ==========
@@ -112,7 +123,23 @@ public class NetworkGameManager
         switch (message.Type)
         {
             case "NewGame":
-                _gameManager.StartNewGame();
+                // 检查是否携带种子（VPet 联机模式）
+                try
+                {
+                    var initData = JsonSerializer.Deserialize<NewGamePayload>(message.Payload);
+                    if (initData?.Seed != null && initData.Seed != 0)
+                    {
+                        _gameManager.StartNewGame(initData.Seed.Value, initData.FirstPlayerIndex ?? 0);
+                    }
+                    else
+                    {
+                        _gameManager.StartNewGame();
+                    }
+                }
+                catch
+                {
+                    _gameManager.StartNewGame();
+                }
                 break;
 
             case "Bid":
@@ -155,10 +182,14 @@ public class NetworkGameManager
 
     private int GetPlayerIndex(string playerId)
     {
+        // 优先使用自定义座位映射（VPetLan 模式）
+        if (_playerSeatMap.TryGetValue(playerId, out var seat))
+            return seat;
         // 简化实现：根据网络顺序映射座位
         return 1; // 对手固定为座位1
     }
 
     private record BidPayload(int Amount);
     private record CardData(int Suit, int Rank);
+    private record NewGamePayload(int? Seed, int? FirstPlayerIndex);
 }

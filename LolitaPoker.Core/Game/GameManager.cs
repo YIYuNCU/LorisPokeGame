@@ -58,7 +58,7 @@ public class GameManager
     public IReadOnlyList<Card> GetPlayerHand(int index) => _players[index].Hand;
 
     // ========== 发牌（公共步骤） ==========
-    private void DealAndReset()
+    private void DealAndReset(int? seed = null)
     {
         _lastPlayedCombo = null;
         _lastPlayedByIndex = null;
@@ -75,7 +75,7 @@ public class GameManager
             p.Hand.Clear();
         }
 
-        var deck = new Deck();
+        var deck = seed.HasValue ? new Deck(seed.Value) : new Deck();
         var (h0, h1, h2, kitty) = deck.Deal();
         deck.ReturnToPool(); // 归还牌组到缓存池
 
@@ -111,6 +111,18 @@ public class GameManager
         DealAndReset();
 
         _currentPlayerIndex = Random.Shared.Next(3);
+        SetPhase(GamePhase.Bidding);
+        TurnChanged?.Invoke(_currentPlayerIndex);
+    }
+
+    /// <summary>
+    /// 使用确定性种子开始游戏（VPet 联机模式专用，确保所有玩家发牌一致）
+    /// </summary>
+    public void StartNewGame(int seed, int firstPlayerIndex)
+    {
+        DealAndReset(seed);
+
+        _currentPlayerIndex = firstPlayerIndex;
         SetPhase(GamePhase.Bidding);
         TurnChanged?.Invoke(_currentPlayerIndex);
     }

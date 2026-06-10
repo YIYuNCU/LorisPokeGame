@@ -37,12 +37,12 @@ public class NetworkSettingsViewModel : ViewModelBase
         }
     }
 
-    public bool IsP2PMode => _mode == GameMode.P2P;
+    public bool IsP2PMode => _mode == GameMode.VPetLan;
     public bool IsServerMode => _mode == GameMode.Server;
 
-    public string TitleEmoji => _mode == GameMode.P2P ? "📡" : "🌐";
-    public string Title => _mode == GameMode.P2P ? "P2P 联网模式" : "服务器模式";
-    public string Subtitle => _mode == GameMode.P2P
+    public string TitleEmoji => _mode == GameMode.VPetLan ? "📡" : "🌐";
+    public string Title => _mode == GameMode.VPetLan ? "P2P 联网模式" : "服务器模式";
+    public string Subtitle => _mode == GameMode.VPetLan
         ? "局域网内直接连接对战（开发中）"
         : "连接远程服务器，与全球玩家对战";
 
@@ -259,7 +259,7 @@ public class NetworkSettingsViewModel : ViewModelBase
     {
         const string name = "玩家";
 
-        if (_mode == GameMode.P2P)
+        if (_mode == GameMode.VPetLan)
             await ConnectP2P(name, isCreate);
         else
             await ConnectServer(name, isCreate);
@@ -284,7 +284,7 @@ public class NetworkSettingsViewModel : ViewModelBase
             {
                 ConnectionStatus = isHost ? "房间已创建，等待其他玩家..." : "已加入房间！";
                 ConnectionStatusColor = "#27ae60";
-                _navigate(GameMode.P2P, adapter, name, IpAddress, port, "");
+                _navigate(GameMode.VPetLan, adapter, name, IpAddress, port, "");
             }
             else
             {

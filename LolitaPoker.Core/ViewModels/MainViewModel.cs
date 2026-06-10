@@ -64,7 +64,7 @@ public class MainViewModel : ViewModelBase
             case GameMode.HumanVsAI:
                 gameVm.InitializePlayers(playerName, "电脑A", "电脑B");
                 break;
-            case GameMode.P2P:
+            case GameMode.VPetLan:
             case GameMode.Server:
                 gameVm.InitializePlayers(playerName, "等待加入...", "等待加入...");
                 break;

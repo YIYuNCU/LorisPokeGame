@@ -511,7 +511,50 @@ public class GameViewModel : ViewModelBase
         _networkGameManager.ServerMessageReceived += OnServerMessageReceived;
     }
 
+    /// <summary>
+    /// 设置玩家座位映射（VPetLan 模式专用，由插件调用）
+    /// </summary>
+    public void SetPlayerSeatMap(Dictionary<string, int> seatMap)
+    {
+        _networkGameManager?.SetPlayerSeatMap(seatMap);
+    }
+
     // ========== 新游戏 ==========
+
+    /// <summary>
+    /// 使用确定性种子开始游戏（VPet 联机非房主专用，确保手牌与房主一致）
+    /// </summary>
+    public void StartNewGameWithSeed(int seed, int firstPlayer)
+    {
+        // 重置 UI 状态
+        _ttsReadyTcs?.TrySetResult();
+        _ttsReadyTcs = null;
+        _dealCts?.Cancel();
+        _dealCts?.Dispose();
+        _dealCts = null;
+        _isDealing = false;
+        _shuffleTcs?.TrySetResult();
+        _shuffleTcs = null;
+        _serverPendingMessages.Clear();
+
+        PlayerBottom.Hand.Clear();
+        PlayerRight.Hand.Clear();
+        PlayerLeft.Hand.Clear();
+        PlayerBottom.PlayedCards.Clear();
+        PlayerRight.PlayedCards.Clear();
+        PlayerLeft.PlayedCards.Clear();
+        LandlordCards.Clear();
+        LandlordCardsVisible = false;
+        LandlordLabel = "";
+        StatusMessage = "";
+        IsGameOver = false;
+        IsNewGameVisible = false;
+        IsBidPanelVisible = false;
+        IsPlayPanelVisible = false;
+
+        // 使用种子发牌（与房主手牌完全一致）
+        _gameManager.StartNewGame(seed, firstPlayer);
+    }
 
     private void StartNewGame()
     {

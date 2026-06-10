@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-**萝莉丝扑克** - 基于 WPF (.NET 8) 和 Flutter 的斗地主游戏，支持单机对战AI、P2P联机和服务器模式。
+**萝莉丝扑克** - 基于 WPF (.NET 8) 和 Flutter 的斗地主游戏，支持单机对战AI、VPet访客表联机和服务器模式。
 
 ## 技术栈
 
@@ -117,11 +117,12 @@ Compress-Archive -Path publish/self-contained/* -DestinationPath publish/LolitaP
 
 ## 架构设计
 
-### 四项目结构 + 服务器
+### 五项目结构 + 服务器
 
 - **LolitaPoker.App** - 启动项目，负责初始化图片资源和启动主窗口（Debug 为框架依赖，Release 为自包含单文件）
 - **LolitaPoker.Core** - 核心逻辑库，包含游戏规则、AI、UI和网络模块
-- **LolitaPoker.Tests** - xUnit 单元测试项目（242个测试，覆盖规则引擎、卡牌工具、发牌器、GameManager、AI决策、提示系统、配置持久化、Card/CardCombo/PlayerInfo数据模型、CardSelectionCache选牌缓存、NetworkGameManager联机管理器、基础ViewModel/命令/转换器/MainViewModel测试、**压力测试**（CardComboFinder/RulesEngine/GameManager/DeckPool线程安全/SimpleAI完整对局/NetworkGameManager）、**性能测试**（FindAllPlayableCombos延迟/ClassifyPlay延迟/CanBeat吞吐/完整对局性能/DeckPool性能/AI决策延迟）、**内存管理测试**（分配压力/Gen0回收/防御性拷贝/CardViewModel静态事件泄漏/GameManager事件退订/DeckPool池上限/NetworkGameManager事件订阅）、**反作弊测试**（回合/牌型/跳过/叫分防护验证、重复牌拒绝、手牌所有权拒绝、叫分范围拒绝、CanBeat正确性、炸弹翻倍、清桌机制））
+- **LolitaPoker.Plugin** - VPet 桌宠插件，通过访客表（Steam P2P）实现联机对战（继承 MainPlugin，注入 Tab + 独立游戏窗口）
+- **LolitaPoker.Tests** - xUnit 单元测试项目（262个测试，覆盖规则引擎、卡牌工具、发牌器、GameManager、AI决策、提示系统、配置持久化、Card/CardCombo/PlayerInfo数据模型、CardSelectionCache选牌缓存、NetworkGameManager联机管理器、基础ViewModel/命令/转换器/MainViewModel测试、**压力测试**、**性能测试**、**内存管理测试**、**反作弊测试**）
 - **server/** - Python FastAPI 游戏服务器（WebSocket 实时通信，含 210 个 pytest 测试，支持主从服务器架构）
 - **lolita_poker/** - Flutter 跨平台版本（97个测试，domain/data/presentation 三层架构）
 
@@ -221,6 +222,15 @@ LolitaPoker.App/           # 启动项目
 ├── WhiteVoiceTtsService.cs # 基于 MediaPlayer 的 TTS 实现，播放 WhiteVoice.mp3
 └── BgmServiceImpl.cs      # 基于 MediaPlayer 的 BGM 实现，循环播放 Background.mp3
 
+LolitaPoker.Plugin/        # VPet 桌宠插件项目
+├── LolitaPokerPlugin.cs   # 插件入口，继承 MainPlugin，订阅 MutiPlayerHandle
+├── VPetNetworkAdapter.cs  # 实现 INetworkAdapter，桥接 IMPWindows Steam P2P 消息
+├── HostGameManager.cs     # 房主端游戏权威，封装本地 GameManager，广播操作结果
+├── VpetMpTypes.cs         # 自定义 MPMessage Type 常量（-100~-150）
+├── VpetPayloads.cs        # 消息载荷 POCO 类（带 [Line] 特性，LPSConvert 序列化）
+├── LolitaPokerTab.xaml/cs # 注入到访客表 TabControl 的 UI（准备按钮+状态显示）
+└── GameHostWindow.xaml/cs # 承载 GameTableControl 的独立游戏窗口
+
 LolitaPoker.Tests/   # xUnit 单元测试项目
 ├── CardHelperTests.cs           # 卡牌工具类测试（CreateFullDeck, GetDisplayName, SortHand）
 ├── RulesEngineTests.cs          # 规则引擎测试（14种牌型识别 + CanBeat 比较逻辑）
@@ -306,7 +316,8 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 **ModeSelectViewModel** (ViewModels/ModeSelectViewModel.cs)
 - 模式选择界面逻辑，提供三种模式入口
 - 人机模式：直接导航到游戏桌面
-- P2P/服务器模式：导航到对应的 `NetworkSettingsViewModel` 设置页面
+- VPet联机：显示使用说明（需通过 VPet 访客表使用）
+- 服务器模式：导航到对应的 `NetworkSettingsViewModel` 设置页面
 
 **NetworkSettingsViewModel** (ViewModels/NetworkSettingsViewModel.cs)
 - P2P 和服务器共用的连接设置视图模型
@@ -349,7 +360,7 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 **GameViewModel** (ViewModels/GameViewModel.cs)
 - 游戏主视图模型，连接GameManager、AI和UI
 - 管理选牌状态、提示系统和AI延时
-- 支持三种模式：`GameMode.HumanVsAI`、`GameMode.P2P`、`GameMode.Server`
+- 支持三种模式：`GameMode.HumanVsAI`、`GameMode.VPetLan`、`GameMode.Server`
 - **音频服务注入**：构造函数接收 `ITtsService?`、`IBgmService?` 和 `ISoundEffectService?`（可选，默认 NullTtsService/NullBgmService/NullSoundEffectService）
 - **TTS 播报**：出牌时异步调用 `_ttsService.SpeakAsync(combo.GetDescription())`，AI 出牌等待 TTS 完成后再执行
 - **音效播放**：出牌时通过 `SoundEffectMapper.GetCardPlaySoundFileName` 播放牌型音效；不出/跳过时播放 `pass.mp3`；游戏结束时播放 `victory.mp3`/`defeat.mp3`

@@ -1,0 +1,100 @@
+<UserControl x:Class="LolitaPoker.Plugin.LolitaPokerTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="VpetButton" TargetType="Button">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="16,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#555"/>
+                                <Setter Property="Foreground" Value="#999"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel Margin="12">
+        <!-- 标题 -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="🃏" FontSize="20" Margin="0,0,6,0" VerticalAlignment="Center"/>
+            <TextBlock Text="萝莉丝扑克" FontSize="16" FontWeight="Bold"
+                       Foreground="#FFD700" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- 座位状态 -->
+        <Border Background="#222" CornerRadius="8" Padding="12,8" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock Text="座位状态" FontSize="12" Foreground="#aaa" Margin="0,0,0,6"/>
+
+                <!-- 座位 0 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <Ellipse Width="12" Height="12" Margin="0,0,8,0"
+                             Fill="{Binding Seat0Color}"/>
+                    <TextBlock Text="{Binding Seat0Text}" FontSize="13" Foreground="White"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- 座位 1 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <Ellipse Width="12" Height="12" Margin="0,0,8,0"
+                             Fill="{Binding Seat1Color}"/>
+                    <TextBlock Text="{Binding Seat1Text}" FontSize="13" Foreground="White"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- 座位 2 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                    <Ellipse Width="12" Height="12" Margin="0,0,8,0"
+                             Fill="{Binding Seat2Color}"/>
+                    <TextBlock Text="{Binding Seat2Text}" FontSize="13" Foreground="White"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- 操作按钮 -->
+        <StackPanel Margin="0,0,0,10">
+            <!-- 准备/取消准备 -->
+            <Button Content="{Binding ReadyButtonText}"
+                    Command="{Binding ToggleReadyCommand}"
+                    Style="{StaticResource VpetButton}"
+                    Background="{Binding ReadyButtonColor}"
+                    Margin="0,0,0,6"/>
+
+            <!-- 房主专用：开始游戏 -->
+            <Button Content="🎮 开始游戏"
+                    Command="{Binding StartGameCommand}"
+                    Style="{StaticResource VpetButton}"
+                    Background="#27ae60"
+                    Visibility="{Binding IsStartButtonVisible, Converter={StaticResource BoolToVis}}"/>
+        </StackPanel>
+
+        <!-- 状态消息 -->
+        <TextBlock Text="{Binding StatusMessage}"
+                   FontSize="12" Foreground="#aaa"
+                   TextWrapping="Wrap"/>
+    </StackPanel>
+</UserControl>

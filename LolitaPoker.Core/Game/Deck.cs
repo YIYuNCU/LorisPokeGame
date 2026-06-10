@@ -51,6 +51,21 @@ public static class DeckPool
     }
 
     /// <summary>
+    /// 使用指定种子获取一副确定性洗好的牌（VPet 联机模式专用）
+    /// </summary>
+    public static List<Card> GetShuffledDeck(int seed)
+    {
+        var deck = new List<Card>(_baseCards);
+        var rng = new Random(seed);
+        for (int i = deck.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (deck[i], deck[j]) = (deck[j], deck[i]);
+        }
+        return deck;
+    }
+
+    /// <summary>
     /// 归还牌组到缓存池
     /// </summary>
     public static void Return(List<Card> deck)
@@ -76,6 +91,12 @@ public class Deck
     public Deck()
     {
         _cards = DeckPool.GetShuffledDeck();
+    }
+
+    /// <summary>使用指定种子创建确定性牌组（VPet 联机模式专用）</summary>
+    public Deck(int seed)
+    {
+        _cards = DeckPool.GetShuffledDeck(seed);
     }
 
     /// <summary>

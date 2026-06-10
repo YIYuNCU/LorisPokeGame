@@ -105,7 +105,7 @@
                     </Grid>
                 </Border>
 
-                <!-- ======== 模式2：P2P 联网 ======== -->
+                <!-- ======== 模式2：VPet 联机 ======== -->
                 <Border Background="#16213e" CornerRadius="12" Padding="22,16" Margin="0,0,0,14"
                         BorderBrush="#e67e22" BorderThickness="1.5">
                     <Grid>
@@ -115,15 +115,15 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="📡" FontSize="22" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                                <TextBlock Text="P2P 联网模式" FontSize="20" FontWeight="Bold"
+                                <TextBlock Text="🐾" FontSize="22" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="VPet 联机" FontSize="20" FontWeight="Bold"
                                            Foreground="White" VerticalAlignment="Center"/>
                             </StackPanel>
-                            <TextBlock Text="局域网内直接连接对战（开发中）" Foreground="#888"
+                            <TextBlock Text="通过 VPet 访客表与好友联机对战" Foreground="#888"
                                        FontSize="13" Margin="0,4,0,0"/>
                         </StackPanel>
-                        <Button Grid.Column="1" Content="配 置"
-                                Command="{Binding OpenP2PSettingsCommand}"
+                        <Button Grid.Column="1" Content="使用说明"
+                                Command="{Binding OpenVPetLanInfoCommand}"
                                 Style="{StaticResource ModeButton}" Background="#e67e22"
                                 VerticalAlignment="Center"/>
                     </Grid>

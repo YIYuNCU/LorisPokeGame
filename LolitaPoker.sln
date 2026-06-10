@@ -9,6 +9,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LolitaPoker.App", "LolitaPo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LolitaPoker.Tests", "LolitaPoker.Tests\LolitaPoker.Tests.csproj", "{AC2D796A-E2C4-4798-A9C0-81911EDCDECE}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LolitaPoker.Plugin", "LolitaPoker.Plugin\LolitaPoker.Plugin.csproj", "{D4E5F6A7-3456-789A-BCDE-F01234567890}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{AC2D796A-E2C4-4798-A9C0-81911EDCDECE}.Release|x64.Build.0 = Release|Any CPU
 		{AC2D796A-E2C4-4798-A9C0-81911EDCDECE}.Release|x86.ActiveCfg = Release|Any CPU
 		{AC2D796A-E2C4-4798-A9C0-81911EDCDECE}.Release|x86.Build.0 = Release|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Debug|x64.Build.0 = Debug|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Debug|x86.Build.0 = Debug|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Release|x64.ActiveCfg = Release|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Release|x64.Build.0 = Release|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Release|x86.ActiveCfg = Release|Any CPU
+		{D4E5F6A7-3456-789A-BCDE-F01234567890}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

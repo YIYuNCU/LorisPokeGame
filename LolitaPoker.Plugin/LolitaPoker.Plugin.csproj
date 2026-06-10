@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <OutputType>Library</OutputType>
+    <RootNamespace>LolitaPoker.Plugin</RootNamespace>
+    <AssemblyName>LolitaPoker.Plugin</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- VPet 插件接口 -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\VPet\VPet-Simulator.Windows.Interface\VPet-Simulator.Windows.Interface.csproj" />
+    <ProjectReference Include="..\LolitaPoker.Core\LolitaPoker.Core.csproj" />
+  </ItemGroup>
+
+  <!-- 构建后复制到 VPet MOD 目录 -->
+  <PropertyGroup>
+    <VPetModDir>..\..\..\VPet\VPet-Simulator.Windows\MOD\LolitaPoker</VPetModDir>
+  </PropertyGroup>
+
+  <Target Name="CopyToVPetMod" AfterTargets="Build">
+    <MakeDir Directories="$(VPetModDir)\plugin" />
+    <Copy SourceFiles="$(OutputPath)\LolitaPoker.Plugin.dll" DestinationFolder="$(VPetModDir)\plugin" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutputPath)\LolitaPoker.Core.dll" DestinationFolder="$(VPetModDir)\plugin" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
