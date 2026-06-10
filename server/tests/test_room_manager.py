@@ -30,6 +30,18 @@ class TestCreateRoom:
         assert len(code) == 6
         assert re.match(r'^[A-Z0-9]{6}$', code)
 
+    def test_create_room_accepts_turn_timeout(self):
+        rm = RoomManager()
+        _, room, _ = rm.create_room("p1", "Alice", MockWebSocket(), turn_timeout=45)
+        assert room.turn_timeout == 45
+
+    def test_create_room_clamps_turn_timeout(self):
+        rm = RoomManager()
+        _, low_room, _ = rm.create_room("p1", "Alice", MockWebSocket(), turn_timeout=5)
+        _, high_room, _ = rm.create_room("p2", "Bob", MockWebSocket(), turn_timeout=999)
+        assert low_room.turn_timeout == 10
+        assert high_room.turn_timeout == 120
+
 
 # ── join_room ──
 
@@ -181,6 +193,18 @@ class TestRemovePlayerExtended:
         # 房间仍存在
         assert rm.get_room(code) is not None
 
+    def test_remove_player_reorders_seats_before_game_start(self):
+        rm = RoomManager()
+        code, room, _ = rm.create_room("p1", "A", MockWebSocket())
+        rm.join_room(code, "p2", "B", MockWebSocket())
+        rm.join_room(code, "p3", "C", MockWebSocket())
+
+        rm.remove_player("p2")
+
+        assert room.players["p1"].seat == 0
+        assert room.players["p3"].seat == 1
+        assert sorted(p.seat for p in room.players.values()) == [0, 1]
+
 
 # ── 补充：get_next_seat ──
 
@@ -217,3 +241,14 @@ class TestCleanupStaleRooms:
         rm.cleanup_stale_rooms(max_age_minutes=1)
         # 非空房间不应被清理
         assert rm.get_room(code) is not None
+
+    def test_cleanup_removes_stale_single_player_room_and_player_map(self):
+        from datetime import datetime, timedelta
+        rm = RoomManager()
+        code, room, _ = rm.create_room("p1", "A", MockWebSocket())
+        room.last_activity = datetime.now() - timedelta(minutes=6)
+
+        rm.cleanup_stale_rooms()
+
+        assert rm.get_room(code) is None
+        assert "p1" not in rm._player_room_map

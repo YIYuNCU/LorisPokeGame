@@ -130,6 +130,24 @@ public class NetworkSettingsViewModel : ViewModelBase
         set => SetProperty(ref _isPublicRoom, value);
     }
 
+    // ========== 出牌超时（创建房间时） ==========
+    private string _turnTimeoutText = "30";
+    public string TurnTimeoutText
+    {
+        get => _turnTimeoutText;
+        set => SetProperty(ref _turnTimeoutText, value);
+    }
+
+    public int TurnTimeoutSeconds
+    {
+        get
+        {
+            if (int.TryParse(_turnTimeoutText, out int v))
+                return Math.Max(10, Math.Min(120, v));
+            return 30;
+        }
+    }
+
     // ========== 房间列表（大厅） ==========
     private readonly ObservableCollection<RoomListEntry> _roomList = new();
     public ReadOnlyObservableCollection<RoomListEntry> RoomList { get; }
@@ -324,7 +342,7 @@ public class NetworkSettingsViewModel : ViewModelBase
             bool success;
             if (isCreate)
             {
-                success = await adapter.CreateRoomAsync(IsPublicRoom);
+                success = await adapter.CreateRoomAsync(IsPublicRoom, TurnTimeoutSeconds);
                 if (success)
                 {
                     adapter.IsPublicRoom = IsPublicRoom;

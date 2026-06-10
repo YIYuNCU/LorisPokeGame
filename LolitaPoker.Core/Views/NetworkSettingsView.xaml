@@ -257,12 +257,21 @@
                                                    FontWeight="Bold" Margin="0,0,0,10"/>
                                         <CheckBox IsChecked="{Binding IsPublicRoom}"
                                                   Style="{StaticResource DarkCheckBox}"
-                                                  Margin="0,0,0,12">
+                                                  Margin="0,0,0,8">
                                             <StackPanel Margin="0,-2,0,0">
                                                 <TextBlock Text="公开房间" Foreground="#aaa" FontSize="14"/>
                                                 <TextBlock Text="（在大厅中显示）" Foreground="#888" FontSize="12"/>
                                             </StackPanel>
                                         </CheckBox>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                            <TextBlock Text="出牌超时" Foreground="#aaa" FontSize="14"
+                                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBox Text="{Binding TurnTimeoutText, UpdateSourceTrigger=PropertyChanged}"
+                                                     Width="50" FontSize="14" VerticalContentAlignment="Center"
+                                                     Background="#222" Foreground="White" BorderBrush="#555"/>
+                                            <TextBlock Text="秒（10~120）" Foreground="#888" FontSize="12"
+                                                       VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                        </StackPanel>
                                         <Button Content="创建"
                                                 Command="{Binding CreateRoomCommand}"
                                                 Style="{StaticResource PrimaryButton}"/>

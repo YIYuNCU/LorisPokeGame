@@ -20,6 +20,7 @@ class TestCreateRoomPayload:
         payload = CreateRoomPayload()
         assert payload.player_name == "玩家"
         assert payload.is_public is True
+        assert payload.turn_timeout == 30
 
 
 class TestBidPayload:

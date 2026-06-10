@@ -18,6 +18,7 @@ public class LobbyPlayerInfo
     public int Seat { get; set; }
     public string Name { get; set; } = "";
     public bool Ready { get; set; }
+    public string PlayerId { get; set; } = "";
 }
 
 /// <summary>房间列表条目</summary>
@@ -71,7 +72,7 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
     public bool IsConnected => _webSocket?.State == WebSocketState.Open;
     public string LocalPlayerId { get; private set; } = "";
     public string RoomCode { get; private set; } = "";
-    public int AssignedSeat { get; private set; } = -1;
+    public int AssignedSeat { get; set; } = -1;
     public string LastError { get; private set; } = "";
 
     /// <summary>大厅玩家列表（加入房间时从服务端获取）</summary>
@@ -124,11 +125,10 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
     /// <summary>
     /// 创建房间
     /// </summary>
-    public async Task<bool> CreateRoomAsync(bool isPublic = true, CancellationToken ct = default)
+    public async Task<bool> CreateRoomAsync(bool isPublic = true, int turnTimeout = 30, CancellationToken ct = default)
     {
-        // 先设好等待再发消息，避免本机回环时响应先到被丢弃
         _pendingResponse = new TaskCompletionSource<JsonElement>();
-        await SendJsonAsync(new { type = "create_room", payload = new { player_name = _playerName, is_public = isPublic } }, ct);
+        await SendJsonAsync(new { type = "create_room", payload = new { player_name = _playerName, is_public = isPublic, turn_timeout = turnTimeout } }, ct);
 
         var response = await WaitForResponseAsync(ct);
         if (response.ValueKind == JsonValueKind.Undefined) return false;
@@ -494,6 +494,7 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
                 Seat = el.GetProperty("seat").GetInt32(),
                 Name = el.GetProperty("name").GetString() ?? "",
                 Ready = el.GetProperty("ready").GetBoolean(),
+                PlayerId = el.TryGetProperty("player_id", out var pid) ? pid.GetString() ?? "" : "",
             });
         }
     }
@@ -566,6 +567,15 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
             {
                 var pid = payload.GetProperty("player_id").GetString() ?? "";
                 ParseLobbyPlayers(payload);
+
+                // 座位重排后更新自己的座位号
+                var self = LobbyPlayers.FirstOrDefault(p => p.PlayerId == LocalPlayerId);
+                if (self != null && self.Seat != AssignedSeat)
+                {
+                    Trace.WriteLine($"[WS] 座位重排: {AssignedSeat} -> {self.Seat}");
+                    AssignedSeat = self.Seat;
+                }
+
                 OnPlayerPresenceChanged?.Invoke(pid, false);
                 OnMessageReceived?.Invoke(new NetworkMessage
                 {
@@ -747,6 +757,14 @@ public class WebSocketNetworkAdapter : INetworkAdapter, IDisposable
                 Trace.WriteLine($"[WS] 未处理的消息类型: {type}");
                 break;
         }
+    }
+
+    internal void DispatchMessageForTesting(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var type = root.GetProperty("type").GetString() ?? "";
+        DispatchMessage(type, root);
     }
 
     public void Dispose()

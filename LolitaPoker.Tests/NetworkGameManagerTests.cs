@@ -240,4 +240,42 @@ public class NetworkGameManagerTests
         // 阶段不应变化
         Assert.Equal(phaseBefore, gm.Phase);
     }
+
+    [Fact]
+    public void WebSocketNetworkAdapter_PlayerLeft_ParsesPlayerIdsAndUpdatesAssignedSeat()
+    {
+        var adapter = new WebSocketNetworkAdapter("ws://127.0.0.1:8000/ws", "Alice")
+        {
+            AssignedSeat = 2
+        };
+
+        typeof(WebSocketNetworkAdapter)
+            .GetProperty(nameof(WebSocketNetworkAdapter.LocalPlayerId))!
+            .SetValue(adapter, "self-id");
+
+        string? leftPlayerId = null;
+        adapter.OnPlayerPresenceChanged += (playerId, joined) =>
+        {
+            if (!joined)
+                leftPlayerId = playerId;
+        };
+
+        adapter.DispatchMessageForTesting("""
+        {
+          "type": "player_left",
+          "payload": {
+            "player_id": "left-id",
+            "players": [
+              {"seat": 0, "name": "Alice", "ready": false, "player_id": "self-id"},
+              {"seat": 1, "name": "Charlie", "ready": true, "player_id": "other-id"}
+            ]
+          }
+        }
+        """);
+
+        Assert.Equal("left-id", leftPlayerId);
+        Assert.Equal(0, adapter.AssignedSeat);
+        Assert.Equal("self-id", adapter.LobbyPlayers[0].PlayerId);
+        Assert.Equal("other-id", adapter.LobbyPlayers[1].PlayerId);
+    }
 }

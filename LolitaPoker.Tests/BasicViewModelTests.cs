@@ -195,6 +195,32 @@ public class BasicViewModelTests
         Assert.IsType<TestViewModel>(vm.CurrentViewModel);
     }
 
+    [Theory]
+    [InlineData("abc", 30)]
+    [InlineData("5", 10)]
+    [InlineData("999", 120)]
+    [InlineData("45", 45)]
+    public void NetworkSettingsViewModel_TurnTimeoutSeconds_ParsesAndClamps(string text, int expected)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"game_config_vm_{Guid.NewGuid():N}.json");
+        SetConfigFilePath(tempPath);
+
+        try
+        {
+            var vm = new NetworkSettingsViewModel(GameMode.Server, (_, _, _, _, _, _) => { }, () => { });
+
+            vm.TurnTimeoutText = text;
+
+            Assert.Equal(expected, vm.TurnTimeoutSeconds);
+        }
+        finally
+        {
+            ResetConfigFilePath();
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+    }
+
     [Fact]
     public void GameConfig_Load_InvalidJson_ReturnsDefaults()
     {

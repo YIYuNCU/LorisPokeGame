@@ -14,9 +14,12 @@ public partial class DoudizhuMainWindow : Window
     private const double MinAspect = 1.3;  // 最窄（偏竖）
     private const double MaxAspect = 1.8;  // 最宽（偏横）
 
-    public DoudizhuMainWindow(ITtsService? ttsService = null, IBgmService? bgmService = null)
+    public DoudizhuMainWindow(
+        ITtsService? ttsService = null,
+        IBgmService? bgmService = null,
+        ISoundEffectService? soundEffectService = null)
     {
-        ViewModel = new MainViewModel(ttsService, bgmService);
+        ViewModel = new MainViewModel(ttsService, bgmService, soundEffectService);
         DataContext = ViewModel;
         InitializeComponent();
         SizeChanged += OnWindowSizeChanged;

@@ -18,6 +18,7 @@ import psutil
 import pytest
 import requests
 import websockets
+from tests.conftest import wait_for_server_in_list, wait_until
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
 HOST = "127.0.0.1"
@@ -25,6 +26,20 @@ HOST = "127.0.0.1"
 # 端口分配器
 _master_port = 19000
 _slave_port = 19100
+
+
+def _master_servers(host, port):
+    r = requests.get(f"http://{host}:{port}/api/servers", timeout=3)
+    r.raise_for_status()
+    return r.json()["servers"]
+
+
+def _find_slave_server(master_host, master_port, slave_port, timeout=10.0):
+    return wait_for_server_in_list(
+        lambda: _master_servers(master_host, master_port),
+        slave_port,
+        timeout=timeout,
+    )
 
 
 @pytest.fixture()
@@ -91,6 +106,7 @@ def slave_server(master_server):
 
     env = os.environ.copy()
     env["SERVER_PORT"] = str(s_port)
+    env["SLAVE_PORT"] = str(s_port)
     env["MASTER_URL"] = f"ws://{m_host}:{m_port}/ws/slave"
     env["SLAVE_NAME"] = f"测试服务器_{s_port}"
     env["SLAVE_HOST"] = m_host
@@ -118,8 +134,7 @@ def slave_server(master_server):
             proc.kill()
             raise RuntimeError("从服务器 10 秒内未就绪")
 
-        # 等待注册完成
-        time.sleep(2)
+        _find_slave_server(m_host, m_port, s_port)
 
         yield HOST, s_port, proc.pid
     finally:
@@ -185,24 +200,16 @@ class TestSlaveRegistration:
         m_host, m_port, _ = master_server
         s_host, s_port, _ = slave_server
 
-        r = requests.get(f"http://{m_host}:{m_port}/api/servers", timeout=3)
-        servers = r.json()["servers"]
-        assert len(servers) >= 1
-        found = any(s["port"] == s_port for s in servers)
-        assert found, f"从服务器 {s_port} 未出现在列表中: {servers}"
+        server = _find_slave_server(m_host, m_port, s_port)
+        assert server["port"] == s_port
 
     @pytest.mark.server_load
     def test_slave_heartbeat_updates_stats(self, master_server, slave_server):
         """心跳更新从服务器统计数据"""
         m_host, m_port, _ = master_server
+        _, s_port, _ = slave_server
 
-        # 等待至少一次心跳
-        time.sleep(12)
-
-        r = requests.get(f"http://{m_host}:{m_port}/api/servers", timeout=3)
-        servers = r.json()["servers"]
-        assert len(servers) >= 1
-        server = servers[0]
+        server = _find_slave_server(m_host, m_port, s_port)
         assert "active_games" in server
         assert "connected_players" in server
         assert server["is_alive"] is True
@@ -221,11 +228,8 @@ class TestServerEnableDisable:
         m_host, m_port, _ = master_server
         s_host, s_port, _ = slave_server
 
-        # 先获取 server_id
-        r = requests.get(f"http://{m_host}:{m_port}/api/servers", timeout=3)
-        servers = r.json()["servers"]
-        assert len(servers) >= 1
-        sid = servers[0]["server_id"]
+        server = _find_slave_server(m_host, m_port, s_port)
+        sid = server["server_id"]
 
         # 禁用
         r = requests.post(f"http://{m_host}:{m_port}/api/servers/{sid}/disable", timeout=3)
@@ -242,10 +246,9 @@ class TestServerEnableDisable:
     def test_enable_slave(self, master_server, slave_server):
         """启用已禁用的从服务器"""
         m_host, m_port, _ = master_server
+        _, s_port, _ = slave_server
 
-        r = requests.get(f"http://{m_host}:{m_port}/api/servers", timeout=3)
-        servers = r.json()["servers"]
-        sid = servers[0]["server_id"]
+        sid = _find_slave_server(m_host, m_port, s_port)["server_id"]
 
         # 先禁用
         requests.post(f"http://{m_host}:{m_port}/api/servers/{sid}/disable", timeout=3)
@@ -258,17 +261,17 @@ class TestServerEnableDisable:
     def test_remove_slave(self, master_server, slave_server):
         """移除从服务器"""
         m_host, m_port, _ = master_server
+        _, s_port, _ = slave_server
 
-        r = requests.get(f"http://{m_host}:{m_port}/api/servers", timeout=3)
-        servers = r.json()["servers"]
-        sid = servers[0]["server_id"]
+        sid = _find_slave_server(m_host, m_port, s_port)["server_id"]
 
         r = requests.delete(f"http://{m_host}:{m_port}/api/servers/{sid}", timeout=3)
         assert r.status_code == 200
 
-        # 列表为空
-        r = requests.get(f"http://{m_host}:{m_port}/api/servers", timeout=3)
-        assert len(r.json()["servers"]) == 0
+        wait_until(
+            lambda: all(s["server_id"] != sid for s in _master_servers(m_host, m_port)),
+            timeout=5,
+        )
 
     @pytest.mark.server_load
     def test_disable_nonexistent_returns_404(self, master_server):
@@ -289,6 +292,8 @@ class TestLobbyWebSocket:
     def test_lobby_receives_server_list(self, master_server, slave_server):
         """大厅客户端连接后立即收到服务器列表"""
         m_host, m_port, _ = master_server
+        _, s_port, _ = slave_server
+        _find_slave_server(m_host, m_port, s_port)
 
         async def run():
             ws = await websockets.connect(f"ws://{m_host}:{m_port}/ws/lobby")
@@ -297,7 +302,7 @@ class TestLobbyWebSocket:
                 msg = json.loads(raw)
                 assert msg["type"] == "server_list"
                 servers = msg["payload"]["servers"]
-                assert len(servers) >= 1
+                assert any(s["port"] == s_port for s in servers)
                 return servers
             finally:
                 await ws.close()
@@ -347,6 +352,7 @@ class TestLobbyWebSocket:
     def test_lobby_receives_update_on_disable(self, master_server, slave_server):
         """禁用从服务器时大厅客户端收到推送"""
         m_host, m_port, _ = master_server
+        _, s_port, _ = slave_server
 
         async def run():
             ws = await websockets.connect(f"ws://{m_host}:{m_port}/ws/lobby")
@@ -354,11 +360,7 @@ class TestLobbyWebSocket:
                 # 跳过初始列表
                 await asyncio.wait_for(ws.recv(), timeout=5)
 
-                # 获取 server_id
-                r = requests.get(f"http://{m_host}:{m_port}/api/servers", timeout=3)
-                servers = r.json()["servers"]
-                assert len(servers) >= 1
-                sid = servers[0]["server_id"]
+                sid = _find_slave_server(m_host, m_port, s_port)["server_id"]
 
                 # 通过 HTTP 禁用
                 requests.post(f"http://{m_host}:{m_port}/api/servers/{sid}/disable", timeout=3)
@@ -387,6 +389,7 @@ class TestEndToEnd:
         """客户端浏览列表 → 选择从服务器 → 直接连接并创建房间"""
         m_host, m_port, _ = master_server
         s_host, s_port, _ = slave_server
+        _find_slave_server(m_host, m_port, s_port)
 
         async def run():
             # 1. 连接大厅获取服务器列表
@@ -394,8 +397,7 @@ class TestEndToEnd:
             raw = await asyncio.wait_for(lobby_ws.recv(), timeout=5)
             msg = json.loads(raw)
             servers = msg["payload"]["servers"]
-            assert len(servers) >= 1
-            target = servers[0]
+            target = next(s for s in servers if s["port"] == s_port)
             await lobby_ws.close()
 
             # 2. 直接连接到选中的从服务器

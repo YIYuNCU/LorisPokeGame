@@ -205,7 +205,7 @@ async def ws_send_recv(ws, msg_type, payload=None, response_type=None, timeout=8
 async def create_and_fill_room(host, port):
     """
     创建房间并让 3 个玩家加入、准备、等待游戏开始。
-    使用 ws_recv 自动跳过广播消息（room_list_updated、player_joined 等）。
+    使用 ws_recv 自动跳过广播消息（player_joined 等）。
     返回: (room_code, [ws1, ws2, ws3], hands, first_bidder)
     """
     ws1 = await ws_connect(host, port)
@@ -249,10 +249,6 @@ async def create_and_fill_room(host, port):
             gs2["payload"]["hand"],
             gs3["payload"]["hand"],
         ]
-
-        # ── 发送发牌完成确认 ──
-        for ws in (ws1, ws2, ws3):
-            await ws.send(json.dumps({"type": "dealing_complete", "payload": {}}))
 
         # 等待 turn_change（ws_recv 会跳过 player_ready）
         tc = await ws_recv(ws1, "turn_change")
@@ -627,8 +623,6 @@ class TestMessageThroughput:
                     for ws in (ws1, ws2, ws3):
                         await ws_recv(ws, "game_start")
                     for ws in (ws1, ws2, ws3):
-                        await ws.send(json.dumps({"type": "dealing_complete", "payload": {}}))
-                    for ws in (ws1, ws2, ws3):
                         await ws_recv(ws, "turn_change")
 
                     # 叫分延迟
@@ -758,8 +752,8 @@ class TestResourceCleanup:
             return resp.json()
 
         stats = asyncio.run(run())
-        print(f"\n  断线清理: active_games={stats['active_games']}")
-        assert stats["active_games"] == 0
+        print(f"\n  断线清理: room_count={stats['room_count']}")
+        assert stats["room_count"] == 0
 
 
 # ================================================================

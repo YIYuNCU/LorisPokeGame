@@ -6,12 +6,15 @@ room_manager.py - 房间管理器
 import random
 import string
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import WebSocket
 
 from game_logic import ServerGameManager
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,12 +42,11 @@ class Room:
     players: dict[str, PlayerConnection] = field(default_factory=dict)  # player_id -> connection
     game: Optional[ServerGameManager] = None
     created_at: datetime = field(default_factory=datetime.now)
+    last_activity: datetime = field(default_factory=datetime.now)  # 最后一次人数/状态变化
     game_started: bool = False
     is_public: bool = True
     creator_id: str = ""  # 房间创建者 player_id
     turn_timeout: int = 30  # 出牌超时秒数
-    dealing_ready: set[str] = field(default_factory=set)  # 已完成发牌动画的 player_id 集合
-    pending_turn_change: Optional[dict] = field(default=None)  # 等所有玩家就绪后发送的 turn_change
 
     # 断线重连
     reconnect_tokens: dict[str, ReconnectToken] = field(default_factory=dict)  # player_id -> token
@@ -88,13 +90,30 @@ class RoomManager:
         self._rooms: dict[str, Room] = {}
         self._player_room_map: dict[str, str] = {}  # player_id -> room_code
 
-    def create_room(self, player_id: str, player_name: str, websocket: WebSocket, is_public: bool = True) -> tuple[str, Room, int]:
+    @property
+    def room_count(self) -> int:
+        """当前存在的房间数"""
+        return len(self._rooms)
+
+    def create_room(
+        self,
+        player_id: str,
+        player_name: str,
+        websocket: WebSocket,
+        is_public: bool = True,
+        turn_timeout: int = 30,
+    ) -> tuple[str, Room, int]:
         """
         创建房间
         返回: (room_code, room, assigned_seat)
         """
         room_code = self._generate_room_code()
-        room = Room(room_code=room_code, is_public=is_public, creator_id=player_id)
+        room = Room(
+            room_code=room_code,
+            is_public=is_public,
+            creator_id=player_id,
+            turn_timeout=max(10, min(120, turn_timeout)),
+        )
         seat = 0
 
         room.players[player_id] = PlayerConnection(
@@ -139,6 +158,7 @@ class RoomManager:
         )
 
         self._player_room_map[player_id] = room_code
+        room.last_activity = datetime.now()
 
         return True, "", seat
 
@@ -150,18 +170,26 @@ class RoomManager:
         return None
 
     def remove_player(self, player_id: str) -> Optional[Room]:
-        """移除玩家，返回所在房间（如果房间还存在）"""
+        """移除玩家，重排座位号，返回所在房间（如果房间还存在）"""
         room_code = self._player_room_map.pop(player_id, None)
         if not room_code or room_code not in self._rooms:
             return None
 
         room = self._rooms[room_code]
+        old_seat = room.players[player_id].seat if player_id in room.players else -1
         room.players.pop(player_id, None)
+        room.last_activity = datetime.now()
 
         # 如果房间空了，删除房间
         if room.player_count == 0:
             del self._rooms[room_code]
             return None
+
+        # 游戏未开始时重排座位号，保持连续（0, 1, 2...）
+        if not room.game_started:
+            sorted_players = sorted(room.players.values(), key=lambda p: p.seat)
+            for new_seat, conn in enumerate(sorted_players):
+                conn.seat = new_seat
 
         return room
 
@@ -241,13 +269,25 @@ class RoomManager:
         return False
 
     def cleanup_stale_rooms(self, max_age_minutes: int = 30):
-        """清理超时房间"""
-        cutoff = datetime.now() - timedelta(minutes=max_age_minutes)
-        to_remove = [
-            code for code, room in self._rooms.items()
-            if room.created_at < cutoff and room.player_count == 0
-        ]
+        """清理超时房间：
+        1. 空房间超过 max_age_minutes
+        2. 仅剩1人且超过5分钟未变化
+        """
+        now = datetime.now()
+        empty_cutoff = now - timedelta(minutes=max_age_minutes)
+        single_cutoff = now - timedelta(minutes=5)
+        to_remove = []
+        for code, room in self._rooms.items():
+            if room.player_count == 0 and room.created_at < empty_cutoff:
+                to_remove.append(code)
+            elif room.player_count == 1 and not room.game_started and room.last_activity < single_cutoff:
+                to_remove.append(code)
         for code in to_remove:
+            logger.info(f"清理超时房间: {code}")
+            # 清理 player_room_map
+            pids = [pid for pid, rc in self._player_room_map.items() if rc == code]
+            for pid in pids:
+                del self._player_room_map[pid]
             del self._rooms[code]
 
     def _generate_room_code(self) -> str:

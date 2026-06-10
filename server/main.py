@@ -4,16 +4,16 @@ WebSocket 实时通信，房间管理和游戏逻辑
 """
 
 import asyncio
-import json
 import logging
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import JSONResponse
 
-from models import ClientMessage, CreateRoomPayload, JoinRoomPayload, BidPayload, PlayPayload, CardData, SetRoomVisibilityPayload
+from models import CreateRoomPayload, JoinRoomPayload, SetRoomVisibilityPayload
 from room_manager import RoomManager, Room, ReconnectToken
-from game_logic import ServerGameManager
+from game_logic import ServerGameManager, PHASE_PLAYING
 from card_models import Card
 from server_config import ServerConfig
 
@@ -21,11 +21,36 @@ from server_config import ServerConfig
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="萝莉丝扑克 - 斗地主服务器", version="1.0.0")
+_slave_reg = None
+
+@asynccontextmanager
+async def lifespan(application):
+    cleanup_task = asyncio.ensure_future(_periodic_cleanup())
+    logger.info("房间清理定时任务已启动")
+    if _slave_reg:
+        await _slave_reg.start()
+        logger.info(f"从服务器模式: 注册到 {_slave_reg.master_url}")
+    yield
+    cleanup_task.cancel()
+    if _slave_reg:
+        await _slave_reg.stop()
+
+
+app = FastAPI(title="萝莉丝扑克 - 斗地主服务器", version="1.0.0", lifespan=lifespan)
 room_manager = RoomManager()
 server_config = ServerConfig()
 connected_websockets: set[WebSocket] = set()  # 所有已连接的 WebSocket
 _reconnected_player_ids: set[str] = set()  # 刚完成重连的玩家（防止旧连接 disconnect 误触）
+
+
+async def _periodic_cleanup():
+    """每60秒清理一次超时房间"""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            room_manager.cleanup_stale_rooms()
+        except Exception as e:
+            logger.error(f"清理房间异常: {e}")
 
 
 async def send_json(websocket: WebSocket, data: dict):
@@ -38,12 +63,9 @@ async def send_json(websocket: WebSocket, data: dict):
 
 async def broadcast_to_room(room: Room, message: dict, exclude_player: str = None):
     """向房间内所有玩家广播消息（可排除指定玩家）"""
-    tasks = []
     for pid, conn in room.players.items():
         if pid != exclude_player:
-            tasks.append(send_json(conn.websocket, message))
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+            await send_json(conn.websocket, message)
 
 
 def cancel_turn_timer(room: Room):
@@ -54,7 +76,7 @@ def cancel_turn_timer(room: Room):
 
 
 async def start_turn_timer(room: Room):
-    """为当前出牌玩家启动超时计时器，超时自动不出"""
+    """为当前出牌玩家启动超时计时器。牌权在手超时出最小单牌，跟牌超时自动不出。"""
     cancel_turn_timer(room)
     if room.turn_timeout <= 0 or not room.game or room.game_paused:
         return
@@ -66,16 +88,32 @@ async def start_turn_timer(room: Room):
             await asyncio.sleep(timeout)
         except asyncio.CancelledError:
             return
-        # 超时：自动不出
+        # 超时自动操作
         if not room.game or room.game_paused:
             return
-        game_data = room.game.get_game_data()
-        current_seat = game_data.get("current_player", -1)
-        phase = game_data.get("phase", "")
-        if phase != "playing":
+        if room.game.phase != PHASE_PLAYING:
             return
-        logger.info(f"房间 {room.room_code} 座位 {current_seat} 出牌超时({timeout}s)，自动不出")
-        action = room.game.submit_pass(current_seat)
+        current_seat = room.game.current_player
+
+        # 判断是否牌权在自己手中（自由出牌）
+        has_initiative = (
+            room.game.last_played_combo is None
+            or room.game.last_played_by == current_seat
+        )
+
+        if has_initiative:
+            # 牌权在手：出最小的单牌
+            hand = room.game.players[current_seat].hand
+            if not hand:
+                return
+            smallest = min(hand, key=lambda c: c.rank)
+            logger.info(f"房间 {room.room_code} 座位 {current_seat} 出牌超时({timeout}s)，自动出最小单牌 {smallest.rank}")
+            action = room.game.submit_play(current_seat, [smallest])
+        else:
+            # 需要跟牌：自动不出
+            logger.info(f"房间 {room.room_code} 座位 {current_seat} 出牌超时({timeout}s)，自动不出")
+            action = room.game.submit_pass(current_seat)
+
         for msg in action.messages:
             msg_type = msg.get("type", "")
             payload = msg.get("payload", {})
@@ -93,23 +131,8 @@ def start_turn_timer_soon(room: Room):
 
 
 async def broadcast_lobby_update():
-    """向所有不在房间内的客户端广播房间列表更新"""
-    public_rooms = room_manager.get_public_rooms()
-    message = {
-        "type": "room_list_updated",
-        "payload": {"rooms": public_rooms}
-    }
-    tasks = []
-    for ws in connected_websockets:
-        # 跳过已在房间中的 WebSocket
-        in_room = any(
-            any(p.websocket is ws for p in room.players.values())
-            for room in room_manager._rooms.values()
-        )
-        if not in_room:
-            tasks.append(send_json(ws, message))
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+    """Room lists are fetched on demand; avoid global scans on every room event."""
+    return
 
 
 async def send_to_seat(room: Room, seat: int, message: dict):
@@ -127,8 +150,22 @@ async def handle_create_room(websocket: WebSocket, player_id: str, payload: dict
         await send_json(websocket, {"type": "error", "payload": {"message": "无效的创建房间参数"}})
         return
 
-    room_code, room, seat = room_manager.create_room(player_id, data.player_name, websocket, is_public=data.is_public)
-    logger.info(f"房间 {room_code} 已创建，玩家 {data.player_name} (ID:{player_id}, 座位:{seat}, 公开:{data.is_public})")
+    # 检查房间数上限
+    if not server_config.can_create_room(room_manager.room_count):
+        await send_json(websocket, {
+            "type": "error",
+            "payload": {"message": f"服务器房间已满（{room_manager.room_count}/{server_config.max_concurrent_games}），请稍后再试"}
+        })
+        return
+
+    room_code, room, seat = room_manager.create_room(
+        player_id,
+        data.player_name,
+        websocket,
+        is_public=data.is_public,
+        turn_timeout=data.turn_timeout,
+    )
+    logger.debug(f"房间 {room_code} 已创建，玩家 {data.player_name} (ID:{player_id}, 座位:{seat}, 公开:{data.is_public})")
 
     await send_json(websocket, {
         "type": "room_created",
@@ -159,7 +196,7 @@ async def handle_join_room(websocket: WebSocket, player_id: str, payload: dict):
         return
 
     room = room_manager.get_room_by_player(player_id)
-    logger.info(f"玩家 {data.player_name} (ID:{player_id}) 加入房间 {data.room_code}，座位:{seat}")
+    logger.debug(f"玩家 {data.player_name} (ID:{player_id}) 加入房间 {data.room_code}，座位:{seat}")
 
     # 构建当前房间内所有玩家信息
     players_info = [
@@ -300,33 +337,8 @@ async def handle_set_room_visibility(websocket: WebSocket, player_id: str, paylo
 
 async def start_game_in_room(room: Room):
     """在房间内开始游戏"""
-    # 检查并发对局上限
-    if not server_config.can_start_game():
-        await broadcast_to_room(room, {
-            "type": "error",
-            "payload": {"message": f"服务器对局已满（{server_config.active_games}/{server_config.max_concurrent_games}），请稍后再试"}
-        })
-        # 重置准备状态
-        for p in room.players.values():
-            p.is_ready = False
-        await broadcast_to_room(room, {
-            "type": "player_ready",
-            "payload": {
-                "ready_count": 0,
-                "total_needed": 3,
-                "players": [
-                    {"seat": p.seat, "name": p.player_name, "ready": p.is_ready}
-                    for p in room.players.values()
-                ],
-            }
-        })
-        return
-
     room.game_started = True
     room.game = ServerGameManager()
-    room.dealing_ready.clear()  # 重置发牌确认集合
-
-    server_config.on_game_start()
 
     # 重置所有玩家的准备状态（为下一局做准备）
     for p in room.players.values():
@@ -338,7 +350,7 @@ async def start_game_in_room(room: Room):
 
     # 发牌
     game_data = room.game.start_game()
-    logger.info(f"房间 {room.room_code} 游戏开始！")
+    logger.debug(f"房间 {room.room_code} 游戏开始！")
 
     # 向每个玩家发送各自的手牌
     # 按座位 0,1,2 顺序拼接玩家名
@@ -357,40 +369,21 @@ async def start_game_in_room(room: Room):
             }
         })
 
-    # 暂存叫分阶段指令，等所有客户端完成发牌动画后再发送
-    room.pending_turn_change = {
+    await broadcast_to_room(room, {
         "type": "turn_change",
         "payload": {
             "current_player": game_data["first_bidder"],
             "phase": "bidding"
         }
-    }
+    })
 
     # 游戏开始，广播大厅更新（该房间已不在大厅中）
     await broadcast_lobby_update()
 
 
 async def handle_dealing_complete(player_id: str):
-    """处理客户端发牌动画完成确认"""
-    room = room_manager.get_room_by_player(player_id)
-    if not room or not room.game:
-        return
-
-    room.dealing_ready.add(player_id)
-    logger.info(f"房间 {room.room_code} 玩家 {player_id} 发牌完成 ({len(room.dealing_ready)}/{room.player_count})")
-
-    # 所有玩家都完成了发牌动画，下发叫分阶段指令
-    if len(room.dealing_ready) >= room.player_count and room.pending_turn_change:
-        msg = room.pending_turn_change
-        room.pending_turn_change = None
-        # 注入出牌超时
-        if msg.get("type") == "turn_change" and msg.get("payload", {}).get("phase") == "playing":
-            msg["payload"]["turn_timeout"] = room.turn_timeout
-        await broadcast_to_room(room, msg)
-        # 出牌阶段启动超时计时器
-        if msg.get("type") == "turn_change" and msg.get("payload", {}).get("phase") == "playing":
-            start_turn_timer_soon(room)
-        logger.info(f"房间 {room.room_code} 所有玩家就绪，下发叫分指令")
+    """兼容旧客户端：发牌动画完成已改为客户端本地流程，服务端不再等待。"""
+    return
 
 
 async def handle_bid(websocket: WebSocket, player_id: str, payload: dict):
@@ -404,13 +397,12 @@ async def handle_bid(websocket: WebSocket, player_id: str, payload: dict):
     if not player:
         return
 
-    try:
-        data = BidPayload(**payload)
-    except Exception:
+    amount = payload.get("amount")
+    if not isinstance(amount, int) or amount < 0 or amount > 3:
         await send_json(websocket, {"type": "error", "payload": {"message": "无效的叫分参数"}})
         return
 
-    result = room.game.submit_bid(player.seat, data.amount)
+    result = room.game.submit_bid(player.seat, amount)
     await _dispatch_game_messages(room, result.messages)
 
 
@@ -425,13 +417,23 @@ async def handle_play(websocket: WebSocket, player_id: str, payload: dict):
     if not player:
         return
 
+    raw_cards = payload.get("cards")
+    if not isinstance(raw_cards, list):
+        await send_json(websocket, {"type": "error", "payload": {"message": "无效的出牌参数"}})
+        return
+
+    cards = []
     try:
-        data = PlayPayload(**payload)
+        for c in raw_cards:
+            suit = c.get("suit")
+            rank = c.get("rank")
+            if not isinstance(suit, int) or not isinstance(rank, int):
+                raise ValueError
+            cards.append(Card(suit=suit, rank=rank))
     except Exception:
         await send_json(websocket, {"type": "error", "payload": {"message": "无效的出牌参数"}})
         return
 
-    cards = [Card(suit=c.suit, rank=c.rank) for c in data.cards]
     # 取消当前出牌超时（玩家已行动）
     cancel_turn_timer(room)
 
@@ -461,23 +463,12 @@ async def _dispatch_game_messages(room: Room, messages: list[dict]):
     """分发游戏消息：广播消息发给所有人，定向消息发给指定座位
     如果消息中包含 game_start，拦截后续的 turn_change，等客户端发牌动画完成后再发送
     """
-    # 检测是否包含 game_start（重发牌场景）
-    has_game_start = any(m.get("type") == "game_start" for m in messages)
-    if has_game_start:
-        room.dealing_ready.clear()
-
     # 检测是否包含 game_over
     has_game_over = any(m.get("type") == "game_over" for m in messages)
 
     for msg in messages:
         msg_type = msg.get("type", "")
         payload = msg.get("payload", {})
-
-        # 如果有 game_start 且当前消息是 turn_change，暂存不发
-        if has_game_start and msg_type == "turn_change" and msg.get("broadcast"):
-            room.pending_turn_change = {"type": msg_type, "payload": payload}
-            logger.info(f"房间 {room.room_code} 暂存 turn_change，等待客户端发牌完成")
-            continue
 
         if msg.get("broadcast"):
             # 注入出牌超时到 turn_change
@@ -493,9 +484,7 @@ async def _dispatch_game_messages(room: Room, messages: list[dict]):
             target_seat = msg["target"]
             await send_to_seat(room, target_seat, {"type": msg_type, "payload": payload})
 
-    # 对局正常结束，释放并发槽位
-    if has_game_over:
-        server_config.on_game_end()
+    # 对局正常结束（房间保留，等待下一局或超时清理）
 
 
 async def handle_disconnect(player_id: str, disconnecting_ws: WebSocket = None):
@@ -505,7 +494,7 @@ async def handle_disconnect(player_id: str, disconnecting_ws: WebSocket = None):
     # 如果该玩家刚完成重连，这是旧连接的关闭事件，跳过
     if player_id in _reconnected_player_ids:
         _reconnected_player_ids.discard(player_id)
-        logger.info(f"玩家 {player_id} 已重连，忽略旧连接断开事件")
+        logger.debug(f"玩家 {player_id} 已重连，忽略旧连接断开事件")
         return
 
     room = room_manager.get_room_by_player(player_id)
@@ -514,7 +503,7 @@ async def handle_disconnect(player_id: str, disconnecting_ws: WebSocket = None):
     if room and disconnecting_ws:
         current_conn = room.players.get(player_id)
         if current_conn and current_conn.websocket is not disconnecting_ws:
-            logger.info(f"玩家 {player_id} 旧连接关闭，当前已是新连接，跳过")
+            logger.debug(f"玩家 {player_id} 旧连接关闭，当前已是新连接，跳过")
             return
 
     # 游戏进行中断线 → 存储重连令牌 + 发起投票
@@ -561,11 +550,11 @@ async def handle_disconnect(player_id: str, disconnecting_ws: WebSocket = None):
     room = room_manager.remove_player(player_id)
 
     if room:
-        logger.info(f"玩家 {player_id} 离开房间 {room.room_code}")
+        logger.debug(f"玩家 {player_id} 离开房间 {room.room_code}")
 
         players_info = [
-            {"seat": p.seat, "name": p.player_name, "ready": p.is_ready}
-            for p in room.players.values()
+            {"seat": p.seat, "name": p.player_name, "ready": p.is_ready, "player_id": pid}
+            for pid, p in room.players.items()
         ]
         await broadcast_to_room(room, {
             "type": "player_left",
@@ -592,7 +581,7 @@ async def handle_reconnect_vote(websocket: WebSocket, player_id: str, payload: d
         return
 
     room.vote_state[player_id] = choice
-    logger.info(f"房间 {room.room_code} 玩家 {player_id} 投票: {choice}")
+    logger.debug(f"房间 {room.room_code} 玩家 {player_id} 投票: {choice}")
 
     # 广播投票更新
     await broadcast_to_room(room, {
@@ -672,7 +661,6 @@ async def _end_game_by_disconnect(room: Room):
     # 重置游戏状态（但保留 reconnect_tokens）
     room.game_started = False
     room.game = None
-    server_config.on_game_end()
 
 
 # ========== WebSocket 端点 ==========
@@ -682,7 +670,7 @@ async def websocket_endpoint(websocket: WebSocket, reconnect_player_id: str = Qu
     await websocket.accept()
     player_id = uuid4().hex[:8]
     connected_websockets.add(websocket)
-    logger.info(f"新连接: {player_id} (reconnect_id={reconnect_player_id})")
+    logger.debug(f"新连接: {player_id} (reconnect_id={reconnect_player_id})")
 
     # 尝试断线重连
     if reconnect_player_id:
@@ -739,11 +727,10 @@ async def websocket_endpoint(websocket: WebSocket, reconnect_player_id: str = Qu
     try:
         while True:
             data = await websocket.receive_json()
-            message = ClientMessage(**data)
-            msg_type = message.type
-            payload = message.payload
+            msg_type = data.get("type", "")
+            payload = data.get("payload") or {}
 
-            logger.info(f"[{player_id}] 收到: {msg_type}")
+            logger.debug(f"[{player_id}] 收到: {msg_type}")
 
             if msg_type == "create_room":
                 await handle_create_room(websocket, player_id, payload)
@@ -774,7 +761,7 @@ async def websocket_endpoint(websocket: WebSocket, reconnect_player_id: str = Qu
                 })
 
     except WebSocketDisconnect:
-        logger.info(f"断开连接: {player_id}")
+        logger.debug(f"断开连接: {player_id}")
         await handle_disconnect(player_id, websocket)
     except Exception as e:
         logger.error(f"异常 [{player_id}]: {e}")
@@ -790,7 +777,7 @@ async def root():
     return {
         "message": "萝莉丝扑克 - 斗地主服务器",
         "version": "1.0.0",
-        **server_config.get_status(),
+        **server_config.get_status(room_manager.room_count, len(connected_websockets)),
     }
 
 
@@ -801,7 +788,7 @@ async def health():
 
 @app.get("/stats")
 async def stats():
-    return server_config.get_status()
+    return server_config.get_status(room_manager.room_count, len(connected_websockets))
 
 
 if __name__ == "__main__":
@@ -829,16 +816,7 @@ if __name__ == "__main__":
         _slave_reg = SlaveRegistration(
             master_url=master_url,
             config=_slave_config,
-            get_stats=lambda: server_config.get_status(),
+            get_stats=lambda: server_config.get_status(room_manager.room_count, len(connected_websockets)),
         )
-
-        @app.on_event("startup")
-        async def _start_registration():
-            await _slave_reg.start()
-            logger.info(f"从服务器模式: 注册到 {master_url}")
-
-        @app.on_event("shutdown")
-        async def _stop_registration():
-            await _slave_reg.stop()
 
     uvicorn.run(app, host="0.0.0.0", port=port)

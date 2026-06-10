@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -8,12 +10,15 @@ using LolitaPoker.Core.Audio;
 namespace LolitaPoker.App;
 
 /// <summary>
-/// 基于 MediaPlayer 的 BGM 实现，循环播放 Background.mp3。
+/// 基于 MediaPlayer 的 BGM 实现，循环播放 Audio/Bgm 目录中的音频。
 /// </summary>
 public sealed class BgmServiceImpl : IBgmService, IDisposable
 {
+    private static readonly string[] SupportedExtensions = [".mp3", ".wav"];
+
     private readonly MediaPlayer _player;
-    private readonly string _audioPath;
+    private readonly List<string> _playlist;
+    private int _currentIndex;
     private bool _playing;
     private bool _pendingPlay;
 
@@ -23,14 +28,12 @@ public sealed class BgmServiceImpl : IBgmService, IDisposable
     public BgmServiceImpl()
     {
         _player = new MediaPlayer();
-        _audioPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Background.mp3");
+        _playlist = LoadPlaylist();
 
         _player.Volume = Volume;
         _player.MediaEnded += (_, _) =>
         {
-            // 循环播放
-            _player.Position = TimeSpan.Zero;
-            _player.Play();
+            PlayNext();
         };
 
         _player.MediaOpened += (_, _) =>
@@ -51,12 +54,12 @@ public sealed class BgmServiceImpl : IBgmService, IDisposable
             System.Diagnostics.Trace.WriteLine($"[BGM] MediaFailed: {e.ErrorException.Message}");
         };
 
-        System.Diagnostics.Trace.WriteLine($"[BGM] 路径: {_audioPath}, 存在: {File.Exists(_audioPath)}");
+        System.Diagnostics.Trace.WriteLine($"[BGM] 曲目数量: {_playlist.Count}");
     }
 
     public Task PlayAsync(string bgmFilePath, CancellationToken cancellationToken = default)
     {
-        string path = File.Exists(bgmFilePath) ? bgmFilePath : _audioPath;
+        string path = ResolvePath(bgmFilePath);
         if (!File.Exists(path))
         {
             System.Diagnostics.Trace.WriteLine($"[BGM] 文件不存在: {path}");
@@ -74,6 +77,51 @@ public sealed class BgmServiceImpl : IBgmService, IDisposable
             System.Diagnostics.Trace.WriteLine($"[BGM] 播放失败: {ex.Message}");
         }
         return Task.CompletedTask;
+    }
+
+    private static List<string> LoadPlaylist()
+    {
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string bgmDir = Path.Combine(baseDir, "Audio", "Bgm");
+        var files = Directory.Exists(bgmDir)
+            ? Directory.EnumerateFiles(bgmDir)
+                .Where(IsSupportedAudioFile)
+                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : new List<string>();
+
+        if (files.Count == 0)
+        {
+            string legacyPath = Path.Combine(baseDir, "Background.mp3");
+            if (File.Exists(legacyPath))
+                files.Add(legacyPath);
+        }
+
+        return files;
+    }
+
+    private static bool IsSupportedAudioFile(string path)
+        => SupportedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
+    private string ResolvePath(string bgmFilePath)
+    {
+        if (!string.IsNullOrWhiteSpace(bgmFilePath) && File.Exists(bgmFilePath))
+            return bgmFilePath;
+
+        return _playlist.Count > 0 ? _playlist[_currentIndex] : string.Empty;
+    }
+
+    private void PlayNext()
+    {
+        if (_playlist.Count == 0)
+        {
+            _playing = false;
+            return;
+        }
+
+        _currentIndex = (_currentIndex + 1) % _playlist.Count;
+        _pendingPlay = true;
+        _player.Open(new Uri(_playlist[_currentIndex], UriKind.Absolute));
     }
 
     public void Stop()

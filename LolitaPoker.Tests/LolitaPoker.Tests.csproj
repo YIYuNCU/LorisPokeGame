@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\LolitaPoker.App\LolitaPoker.App.csproj" />
     <ProjectReference Include="..\LolitaPoker.Core\LolitaPoker.Core.csproj" />
   </ItemGroup>
 

@@ -25,8 +25,8 @@
   <!-- 发布时复制 pics/ 图片目录（排除在单文件之外，与 exe 并列） -->
   <ItemGroup>
     <Content Include="..\pics\**\*" CopyToOutputDirectory="PreserveNewest" Link="pics\%(RecursiveDir)%(Filename)%(Extension)" ExcludeFromSingleFile="true" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\WhiteVoice.mp3" CopyToOutputDirectory="PreserveNewest" Link="WhiteVoice.mp3" ExcludeFromSingleFile="true" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\Background.mp3" CopyToOutputDirectory="PreserveNewest" Link="Background.mp3" ExcludeFromSingleFile="true" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Audio\Bgm\**\*" CopyToOutputDirectory="PreserveNewest" Link="Audio\Bgm\%(RecursiveDir)%(Filename)%(Extension)" ExcludeFromSingleFile="true" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Audio\Sfx\**\*" CopyToOutputDirectory="PreserveNewest" Link="Audio\Sfx\%(RecursiveDir)%(Filename)%(Extension)" ExcludeFromSingleFile="true" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

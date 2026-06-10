@@ -1,6 +1,6 @@
 """
 server_config.py - 服务器参数配置
-管理并发对局上限、从服务器注册等可配置参数，持久化到 JSON 文件
+管理房间上限、从服务器注册等可配置参数，持久化到 JSON 文件
 """
 
 import json
@@ -33,7 +33,6 @@ class ServerConfig:
         self.slave_host: str = DEFAULT_CONFIG["slave_host"]
         self.slave_port: int = DEFAULT_CONFIG["slave_port"]
         self.port: int = DEFAULT_CONFIG["slave_port"]  # 监听端口（如果注册到列表服务器，默认使用此端口）
-        self._active_games: int = 0  # 当前进行中的对局数（内存，不持久化）
         self._load()
 
     def _load(self):
@@ -46,7 +45,7 @@ class ServerConfig:
                 self.slave_name = data.get("slave_name", DEFAULT_CONFIG["slave_name"])
                 self.slave_host = data.get("slave_host", DEFAULT_CONFIG["slave_host"])
                 self.slave_port = data.get("slave_port", DEFAULT_CONFIG["slave_port"])
-                logger.info(f"已加载配置: 最大并发对局 {self.max_concurrent_games}, master_url='{self.master_url}'")
+                logger.info(f"已加载配置: 最大房间数 {self.max_concurrent_games}, master_url='{self.master_url}'")
             else:
                 self._save()
                 logger.info(f"已创建默认配置文件: {CONFIG_FILE}")
@@ -72,35 +71,22 @@ class ServerConfig:
         except Exception as e:
             logger.warning(f"保存配置失败: {e}")
 
-    @property
-    def active_games(self) -> int:
-        return self._active_games
+    def can_create_room(self, current_room_count: int) -> bool:
+        """是否可以创建新房间"""
+        return current_room_count < self.max_concurrent_games
 
-    def can_start_game(self) -> bool:
-        """是否可以开始新对局"""
-        return self._active_games < self.max_concurrent_games
-
-    def on_game_start(self):
-        """对局开始时调用"""
-        self._active_games += 1
-        logger.info(f"对局开始，当前进行中: {self._active_games}/{self.max_concurrent_games}")
-
-    def on_game_end(self):
-        """对局结束时调用"""
-        self._active_games = max(0, self._active_games - 1)
-        logger.info(f"对局结束，当前进行中: {self._active_games}/{self.max_concurrent_games}")
-
-    def get_status(self) -> dict:
-        """获取当前状态"""
+    def get_status(self, room_count: int = 0, connected_players: int = 0) -> dict:
+        """获取当前状态（房间数和在线人数由外部传入）"""
         return {
             "max_concurrent_games": self.max_concurrent_games,
-            "active_games": self._active_games,
+            "room_count": room_count,
+            "connected_players": connected_players,
         }
 
     def set_max_concurrent_games(self, value: int):
-        """修改最大并发对局数（运行时生效并持久化）"""
+        """修改最大房间数（运行时生效并持久化）"""
         if value < 1:
             value = 1
         self.max_concurrent_games = value
         self._save()
-        logger.info(f"最大并发对局数已更新为: {value}")
+        logger.info(f"最大房间数已更新为: {value}")

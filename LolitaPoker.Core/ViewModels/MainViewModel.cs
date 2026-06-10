@@ -17,6 +17,7 @@ public class MainViewModel : ViewModelBase
     private ViewModelBase _currentViewModel;
     private readonly ITtsService _ttsService;
     private readonly IBgmService _bgmService;
+    private readonly ISoundEffectService _soundEffectService;
 
     public ViewModelBase CurrentViewModel
     {
@@ -24,10 +25,14 @@ public class MainViewModel : ViewModelBase
         set => SetProperty(ref _currentViewModel, value);
     }
 
-    public MainViewModel(ITtsService? ttsService = null, IBgmService? bgmService = null)
+    public MainViewModel(
+        ITtsService? ttsService = null,
+        IBgmService? bgmService = null,
+        ISoundEffectService? soundEffectService = null)
     {
         _ttsService = ttsService ?? NullTtsService.Instance;
         _bgmService = bgmService ?? NullBgmService.Instance;
+        _soundEffectService = soundEffectService ?? NullSoundEffectService.Instance;
         _currentViewModel = CreateModeSelectViewModel();
     }
 
@@ -51,7 +56,7 @@ public class MainViewModel : ViewModelBase
     /// </summary>
     private void NavigateToGame(GameMode mode, INetworkAdapter? adapter, string playerName, string address, int port, string roomCode)
     {
-        var gameVm = new GameViewModel(_ttsService, _bgmService);
+        var gameVm = new GameViewModel(_ttsService, _bgmService, _soundEffectService);
         gameVm.GameMode = mode;
 
         switch (mode)

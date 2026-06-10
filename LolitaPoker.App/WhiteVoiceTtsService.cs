@@ -21,7 +21,10 @@ public sealed class WhiteVoiceTtsService : ITtsService, IDisposable
     public WhiteVoiceTtsService()
     {
         _player = new MediaPlayer();
-        _audioPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WhiteVoice.mp3");
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string primaryPath = Path.Combine(baseDir, "Audio", "Sfx", "WhiteVoice.mp3");
+        string legacyPath = Path.Combine(baseDir, "WhiteVoice.mp3");
+        _audioPath = File.Exists(primaryPath) ? primaryPath : legacyPath;
         IsAvailable = File.Exists(_audioPath);
 
         _player.MediaEnded += (_, _) =>

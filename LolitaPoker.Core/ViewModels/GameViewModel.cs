@@ -376,6 +376,7 @@ public class GameViewModel : ViewModelBase
     // ========== 音频服务 ==========
     private readonly ITtsService _ttsService;
     private readonly IBgmService _bgmService;
+    private readonly ISoundEffectService _soundEffectService;
     private TaskCompletionSource? _ttsReadyTcs;
 
     // ========== 服务器模式：TTS 延迟处理 ==========
@@ -437,10 +438,14 @@ public class GameViewModel : ViewModelBase
     /// <summary>返回菜单的回调（由 MainViewModel 设置）</summary>
     public Action? RequestNavigateToMenu { get; set; }
 
-    public GameViewModel(ITtsService? ttsService = null, IBgmService? bgmService = null)
+    public GameViewModel(
+        ITtsService? ttsService = null,
+        IBgmService? bgmService = null,
+        ISoundEffectService? soundEffectService = null)
     {
         _ttsService = ttsService ?? NullTtsService.Instance;
         _bgmService = bgmService ?? NullBgmService.Instance;
+        _soundEffectService = soundEffectService ?? NullSoundEffectService.Instance;
 
         // 默认昵称
         InitializePlayers("玩家", "电脑A", "电脑B");
@@ -895,12 +900,14 @@ public class GameViewModel : ViewModelBase
         if (combo == null)
         {
             // 不出
+            _ = _soundEffectService.PlayAsync(SoundEffectMapper.PassFileName);
             player.LastAction = "不出";
             player.PlayedCards.Clear();
         }
         else
         {
             // 显示出的牌
+            PlayCardSound(combo);
             player.LastAction = "";
             player.PlayedCards.Clear();
             foreach (var card in combo.Cards)
@@ -921,6 +928,20 @@ public class GameViewModel : ViewModelBase
         }
     }
 
+    private void PlayCardSound(CardCombo combo)
+    {
+        var soundFileName = SoundEffectMapper.GetCardPlaySoundFileName(combo);
+        if (soundFileName != null)
+            _ = _soundEffectService.PlayAsync(soundFileName);
+    }
+
+    private void PlayGameResultSound(bool localPlayerWon)
+    {
+        _ = _soundEffectService.PlayAsync(localPlayerWon
+            ? SoundEffectMapper.VictoryFileName
+            : SoundEffectMapper.DefeatFileName);
+    }
+
     private void OnCardsChanged(int playerIndex)
     {
         // 发牌动画期间暂存，动画完成后统一刷新
@@ -938,32 +959,58 @@ public class GameViewModel : ViewModelBase
     {
         _aiTimer.Stop();
 
+        if (!winnerIndex.HasValue)
+        {
+            StatusMessage = "对局已结束";
+            IsPlayPanelVisible = false;
+            IsBidPanelVisible = false;
+            IsGameOver = true;
+            LandlordCardsVisible = true;
+            return;
+        }
+
         string winnerName = winnerIndex.HasValue ? AllPlayers[winnerIndex.Value].Name : "无";
         bool landlordWon = winnerIndex.HasValue &&
             AllPlayers[winnerIndex.Value].Role == PlayerRole.Landlord;
         bool playerIsLandlord = PlayerBottom.Role == PlayerRole.Landlord;
 
         string msg;
+        bool localPlayerWon;
         if (winnerIndex == 0)
         {
+            localPlayerWon = true;
             msg = $"🎉 你赢了！（{multiplier}倍）";
         }
         else if (landlordWon)
         {
             // 地主获胜
             if (playerIsLandlord)
+            {
+                localPlayerWon = true;
                 msg = $"🎉 你赢了！（{multiplier}倍）";
+            }
             else
+            {
+                localPlayerWon = false;
                 msg = $"地主 {winnerName} 获胜！你输了（{multiplier}倍）";
+            }
         }
         else
         {
             // 农民获胜
             if (playerIsLandlord)
+            {
+                localPlayerWon = false;
                 msg = $"农民获胜！你输了（{multiplier}倍）";
+            }
             else
+            {
+                localPlayerWon = true;
                 msg = $"🎉 农民获胜！你赢了（{multiplier}倍）";
+            }
         }
+
+        PlayGameResultSound(localPlayerWon);
 
         StatusMessage = msg;
         IsPlayPanelVisible = false;
@@ -1491,9 +1538,10 @@ public class GameViewModel : ViewModelBase
         int totalNeeded = root.GetProperty("totalNeeded").GetInt32();
         StatusMessage = $"等待玩家准备... ({readyCount}/{totalNeeded})";
 
-        // 同步大厅列表并确保可见
+        // 同步大厅列表（仅游戏未开始时显示）
         SyncLobbyFromAdapter();
-        IsLobbyVisible = true;
+        if (CurrentPhase == GamePhase.Idle || CurrentPhase == GamePhase.GameOver)
+            IsLobbyVisible = true;
     }
 
     private void HandleServerGameRestart(System.Text.Json.JsonElement root)
@@ -1778,18 +1826,9 @@ public class GameViewModel : ViewModelBase
             // 等待最后一张翻牌+铺开动画完成
             await Task.Delay(600, ct);
 
-            // ── 阶段5: 通知服务器发牌动画完成 ──
+            // ── 阶段5: 发牌动画完成，处理服务端提前到达的回合消息 ──
             _isDealing = false;
             FlushServerPendingEvents();
-
-            if (_networkAdapter != null)
-            {
-                _ = _networkAdapter.SendMessageAsync(new NetworkMessage
-                {
-                    Type = "dealing_complete",
-                    Payload = "{}"
-                });
-            }
         }
         catch (OperationCanceledException)
         {
@@ -1948,6 +1987,8 @@ public class GameViewModel : ViewModelBase
         // 记录上一手出牌，供提示系统使用
         _lastServerCombo = RulesEngine.ClassifyPlay(cards);
         _serverConsecutivePasses = 0;
+        if (_lastServerCombo.IsValid)
+            PlayCardSound(_lastServerCombo);
 
         AllPlayers[localSeat].LastAction = "";
         AllPlayers[localSeat].PlayedCards.Clear();
@@ -2007,6 +2048,7 @@ public class GameViewModel : ViewModelBase
     {
         int serverSeat = root.GetProperty("seat").GetInt32();
         int localSeat = ServerSeatToLocal(serverSeat);
+        _ = _soundEffectService.PlayAsync(SoundEffectMapper.PassFileName);
         AllPlayers[localSeat].LastAction = "不出";
         AllPlayers[localSeat].PlayedCards.Clear();
         AllPlayers[localSeat].IsThinking = false;
@@ -2047,9 +2089,11 @@ public class GameViewModel : ViewModelBase
 
         bool playerIsLandlord = PlayerBottom.Role == PlayerRole.Landlord;
         string msg;
+        bool localPlayerWon;
 
         if (winnerSeat == 0)
         {
+            localPlayerWon = true;
             msg = $"🎉 你赢了！（{multiplier}倍）";
         }
         else if (winnerRole == "landlord")
@@ -2057,13 +2101,17 @@ public class GameViewModel : ViewModelBase
             msg = playerIsLandlord
                 ? $"🎉 你赢了！（{multiplier}倍）"
                 : $"地主 {AllPlayers[winnerSeat].Name} 获胜！你输了（{multiplier}倍）";
+            localPlayerWon = playerIsLandlord;
         }
         else
         {
             msg = playerIsLandlord
                 ? $"农民获胜！你输了（{multiplier}倍）"
                 : $"🎉 农民获胜！你赢了（{multiplier}倍）";
+            localPlayerWon = !playerIsLandlord;
         }
+
+        PlayGameResultSound(localPlayerWon);
 
         StatusMessage = msg;
         IsGameOver = true;

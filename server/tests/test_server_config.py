@@ -23,37 +23,21 @@ class TestServerConfig:
                 assert cfg.max_concurrent_games == DEFAULT_CONFIG["max_concurrent_games"]
                 assert cfg.max_concurrent_games == 10
 
-    def test_can_start_game_below_max(self):
+    def test_can_create_room_below_max(self):
         cfg = ServerConfig()
-        cfg._active_games = cfg.max_concurrent_games - 1
-        if cfg._active_games < 0:
-            cfg._active_games = 0
-        assert cfg.can_start_game() is True
+        assert cfg.can_create_room(cfg.max_concurrent_games - 1) is True
 
-    def test_cannot_start_game_at_max(self):
+    def test_can_create_room_at_zero(self):
         cfg = ServerConfig()
-        cfg._active_games = cfg.max_concurrent_games
-        assert cfg.can_start_game() is False
+        assert cfg.can_create_room(0) is True
 
-    def test_on_game_start_increments(self):
+    def test_cannot_create_room_at_max(self):
         cfg = ServerConfig()
-        cfg._active_games = 0
-        cfg.on_game_start()
-        assert cfg.active_games == 1
-        cfg.on_game_start()
-        assert cfg.active_games == 2
+        assert cfg.can_create_room(cfg.max_concurrent_games) is False
 
-    def test_on_game_end_decrements(self):
+    def test_cannot_create_room_above_max(self):
         cfg = ServerConfig()
-        cfg._active_games = 3
-        cfg.on_game_end()
-        assert cfg.active_games == 2
-
-    def test_on_game_end_no_underflow(self):
-        cfg = ServerConfig()
-        cfg._active_games = 0
-        cfg.on_game_end()
-        assert cfg.active_games == 0
+        assert cfg.can_create_room(cfg.max_concurrent_games + 1) is False
 
     def test_set_max_clamps_minimum(self):
         cfg = ServerConfig()
@@ -67,7 +51,13 @@ class TestServerConfig:
 
     def test_get_status_returns_dict(self):
         cfg = ServerConfig()
-        cfg._active_games = 3
-        status = cfg.get_status()
+        status = cfg.get_status(room_count=5, connected_players=3)
         assert status["max_concurrent_games"] == cfg.max_concurrent_games
-        assert status["active_games"] == 3
+        assert status["room_count"] == 5
+        assert status["connected_players"] == 3
+
+    def test_get_status_defaults(self):
+        cfg = ServerConfig()
+        status = cfg.get_status()
+        assert status["room_count"] == 0
+        assert status["connected_players"] == 0

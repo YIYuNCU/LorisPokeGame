@@ -211,7 +211,15 @@ LolitaPoker.Core/Audio/  # 音频服务接口
 ├── ITtsService.cs       # TTS 服务接口（SpeakAsync + IsAvailable）
 ├── NullTtsService.cs    # 默认空 TTS 实现（IsAvailable=false，立即返回）
 ├── IBgmService.cs       # BGM 服务接口（PlayAsync/Stop/Volume/IsPlaying）
-└── NullBgmService.cs    # 默认空 BGM 实现（不播放任何音频）
+├── NullBgmService.cs    # 默认空 BGM 实现（不播放任何音频）
+├── ISoundEffectService.cs    # 音效服务接口（PlayAsync）
+├── NullSoundEffectService.cs # 默认空音效实现（不播放任何音频）
+└── SoundEffectMapper.cs      # 音效文件名映射（牌型→文件名，含 VictoryFileName/DefeatFileName/PassFileName 常量）
+
+LolitaPoker.App/           # 启动项目
+├── App.cs                 # 启动项目，初始化图片资源、TTS、BGM 并启动主窗口
+├── WhiteVoiceTtsService.cs # 基于 MediaPlayer 的 TTS 实现，播放 WhiteVoice.mp3
+└── BgmServiceImpl.cs      # 基于 MediaPlayer 的 BGM 实现，循环播放 Background.mp3
 
 LolitaPoker.Tests/   # xUnit 单元测试项目
 ├── CardHelperTests.cs           # 卡牌工具类测试（CreateFullDeck, GetDisplayName, SortHand）
@@ -237,7 +245,7 @@ server/              # FastAPI 游戏服务器
 ├── game_logic.py    # 服务端游戏状态机（ServerGameManager）
 ├── room_manager.py  # 房间管理（创建/加入/断线处理/大厅房间列表）
 ├── models.py        # Pydantic 消息模型（含 SetRoomVisibilityPayload）
-├── server_config.py # 服务器参数配置（并发对局上限 + 从服务器注册参数，持久化到 server_config.json）
+├── server_config.py # 服务器参数配置（房间数上限 + 从服务器注册参数，持久化到 server_config.json）
 ├── master_config.py  # 列表服务器配置（端口、清理间隔、超时判定，持久化到 master_config.json）
 ├── master.py         # 列表服务器（主服务器）：从服务器注册/发现、服务器列表、启停管理、大厅 WebSocket 推送
 ├── slave_config.py   # 从服务器注册客户端：向列表服务器注册、周期心跳、接收启停指令
@@ -313,6 +321,7 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - **`_lobbyAdapter`**：独立的 WebSocket 连接用于浏览大厅，与游戏 adapter 分离；加入/创建房间时自动 dispose
 - **`_serverBrowserAdapter`**：独立的 WebSocket 连接用于浏览列表服务器，通过 `ConnectToLobbyAsync` 连接 `/ws/lobby` 端点
 - **`IsPublicRoom`**：创建房间时是否公开（默认 true），传递给 `WebSocketNetworkAdapter.IsPublicRoom`
+- **`TurnTimeoutText`**：出牌超时秒数输入（默认 "30"，范围 10~120），传递给 `WebSocketNetworkAdapter.CreateRoomAsync`
 - **`BackCommand`**：智能返回——服务器浏览器/大厅返回主页面，主页面返回模式选择
 - **`Cleanup()`**：断开大厅 adapter 和服务器浏览器 adapter 连接，取消事件订阅
 
@@ -341,16 +350,18 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - 游戏主视图模型，连接GameManager、AI和UI
 - 管理选牌状态、提示系统和AI延时
 - 支持三种模式：`GameMode.HumanVsAI`、`GameMode.P2P`、`GameMode.Server`
-- **音频服务注入**：构造函数接收 `ITtsService?` 和 `IBgmService?`（可选，默认 NullTtsService/NullBgmService）
+- **音频服务注入**：构造函数接收 `ITtsService?`、`IBgmService?` 和 `ISoundEffectService?`（可选，默认 NullTtsService/NullBgmService/NullSoundEffectService）
 - **TTS 播报**：出牌时异步调用 `_ttsService.SpeakAsync(combo.GetDescription())`，AI 出牌等待 TTS 完成后再执行
+- **音效播放**：出牌时通过 `SoundEffectMapper.GetCardPlaySoundFileName` 播放牌型音效；不出/跳过时播放 `pass.mp3`；游戏结束时播放 `victory.mp3`/`defeat.mp3`
 - **BGM 控制**：`_bgmService` 预留注入，Cleanup 时自动 Stop
+- **服务器模式 TTS 延迟**：`HandleServerCardsPlayed` 启动 TTS，`DispatchServerMessage` 中 TurnChange 检测 TTS 未完成时暂存到 `_deferredTurnChangeType/Payload`，TTS 完成后 `FlushDeferredTurnChange()` 重新分发
 - `RoomCode` 属性：服务器模式下存储房间号，绑定到顶部显示
 - `IsPublicRoom` 属性：服务器模式下房间是否公开，绑定到顶部可见性标签
 - `RoomVisibilityText` 计算属性：返回 "🟢 公开" 或 "🔴 私密"
 - `ToggleRoomVisibility()` 方法：仅创建者 + 游戏未开始时可用
 - `IsRoomCreator` 属性：是否为房间创建者，由 `WebSocketNetworkAdapter.IsRoomCreator` 同步
 - `IsRoomVisibilityToggleEnabled` 计算属性：`IsRoomCreator && (Idle || GameOver)`
-- **出牌倒计时**：服务器模式下出牌回合启动 `TurnTimeoutSeconds`（默认 30s）倒计时，超时自动不出；`TurnCountdownText`/`IsCountdownVisible` 驱动 UI 显示
+- **出牌倒计时**：服务器模式下出牌回合启动 `TurnTimeoutSeconds`（默认 30s）倒计时，超时由服务端处理（牌权在手出最小单牌，跟牌自动不出）；`TurnCountdownText`/`IsCountdownVisible` 驱动 UI 显示
 - `IsBackToMenuVisible` 属性：由 `CurrentPhase` setter 自动更新，仅 Idle 阶段为 true
 - **断线投票**：`IsVoteVisible`/`VoteMessage`/`VoteStatusMessage` 控制投票面板；`VoteEndCommand`/`VoteContinueCommand` 发送投票
 - **重连处理**：`HandleServerReconnected` 恢复手牌、对手牌数、地主信息、当前回合等完整游戏状态
@@ -362,7 +373,7 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 
 **WebSocketNetworkAdapter** (Network/WebSocketNetworkAdapter.cs)
 - 使用 `ClientWebSocket` 连接 FastAPI 服务器
-- 提供 `ConnectAsync()`、`CreateRoomAsync(isPublic)`、`JoinRoomAsync()` 方法
+- 提供 `ConnectAsync()`、`CreateRoomAsync(isPublic, turnTimeout)`、`JoinRoomAsync()` 方法
 - **`RequestRoomListAsync()`**：发送 `list_rooms` 请求，解析 `room_list` 响应填充 `RoomList`
 - **`SetRoomVisibilityAsync(isPublic)`**：发送 `set_room_visibility` 消息切换房间可见性
 - **`RoomList`** 属性：`List<RoomListEntry>`，存储公开房间列表（由 `ParseRoomList` 更新）
@@ -411,7 +422,7 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - 静态事件 `SelectionStateChanged`：跨 ViewModel 同步选中状态
 
 **GameTableControl** (Views/GameTableControl.xaml)
-- 游戏桌面控件，5行 Grid 布局：菜单栏 / AI信息+底牌 / 出牌展示 / 玩家出牌 / 手牌+操作
+- 游戏桌面控件，4行 Grid 布局：菜单栏 / AI信息+底牌 / 出牌区域（三人叠加） / 手牌+操作
 - **卡牌自适应**：手牌尺寸由 `RecalcCardSize` 根据窗口宽度阻尼缩放（基准 89px@1000w，阻尼 0.5），`CardWidth`/`CardHeight`/`CardNegativeMargin`/`SelectionLift` 为静态属性，CardControl 通过 `CardSizeChanged` 事件响应
 - **按钮在手牌上方**：操作按钮行（出牌/不出/提示）位于手牌展示区上方，手牌区顶部留有选牌上移空间
 - **菜单栏**（Row 0）：左侧「← 返回主页」按钮（游戏开始后禁用变灰），右侧服务器模式显示房间号 + **可见性标签**（点击切换公开/私密）
@@ -435,7 +446,9 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - **`Room.vote_state`**：断线投票状态（player_id → "end"/"continue"）
 - **`Room.game_paused`**：游戏是否因断线投票而暂停
 - **`Room.creator_id`**：房间创建者 player_id（仅创建者可修改可见性）
-- **`Room.turn_timeout`**：出牌超时秒数（默认 30），超时自动不出
+- **`Room.turn_timeout`**：出牌超时秒数（默认 30），牌权在手超时自动出最小单牌，跟牌超时自动不出
+- **`Room.last_activity`**：最后一次人数/状态变化时间，用于超时清理
+- **`cleanup_stale_rooms()`**：清理超时空房间（30分钟）和单人等待超时房间（5分钟）
 - **`get_public_rooms()`**：返回公开房间列表（含房间码、人数、玩家名）
 - **`set_room_visibility(player_id, is_public)`**：设置房间可见性（仅创建者+游戏未开始时允许）
 - **`store_reconnect_token(player_id)`**：游戏中断线时存储重连令牌，移除玩家连接但保留座位
@@ -444,7 +457,7 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 - 断线处理和超时房间清理（断线广播含更新后的完整玩家列表）
 
 **消息协议**（JSON over WebSocket）
-- 客户端→服务端：`create_room`（含 `is_public`）、`join_room`、`ready`、`cancel_ready`、`list_rooms`、`set_room_visibility`、`reconnect_vote`、`dealing_complete`、`bid`、`play`、`pass`
+- 客户端→服务端：`create_room`（含 `is_public`、`turn_timeout`）、`join_room`、`ready`、`cancel_ready`、`list_rooms`、`set_room_visibility`、`reconnect_vote`、`dealing_complete`、`bid`、`play`、`pass`
 - 服务端→客户端：`room_created`、`room_joined`、`player_joined`、`player_left`、`player_ready`、`room_list`、`room_list_updated`、`visibility_changed`、`vote_start`、`vote_update`、`reconnect_waiting`、`player_reconnected`、`game_ended`、`reconnected`、`game_start`、`bid_update`、`landlord_assigned`、`turn_change`、`cards_played`、`player_passed`、`game_over`、`error`
 - **大厅系统**：`list_rooms` 请求当前公开房间列表，`room_list` 返回结果；`room_list_updated` 推送给不在房间内的客户端；`set_room_visibility` 切换房间公开/私密
 - **断线重连**：`_reconnect_player_id` 查询参数重连；服务端恢复座位并发送 `reconnected`；游戏已结束时发送 `game_ended`
@@ -454,15 +467,13 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 
 **ServerConfig** (server/server_config.py)
 - 服务器参数配置管理器，持久化到 `server_config.json`
-- `max_concurrent_games`：最大并发对局数（默认 10），修改后立即生效并保存
+- `max_concurrent_games`：最大房间数（默认 10），创建房间时检查上限，修改后立即生效并保存
 - `master_url`：列表服务器地址（空字符串=独立模式，非空=从服务器模式）
 - `slave_name`：从服务器名称（注册时显示）
 - `slave_host`：从服务器外部可达地址（注册时告知客户端）
-- `active_games`：当前进行中的对局数（内存计数，不持久化）
-- `can_start_game()`：检查是否还能开始新对局
-- `on_game_start()` / `on_game_end()`：对局开始/结束时更新计数
+- `can_create_room(current_room_count)`：检查当前房间数是否未达上限
+- `get_status(room_count, connected_players)`：返回当前状态（上限+房间数+在线人数）
 - `set_max_concurrent_games(value)`：运行时修改上限并持久化
-- `get_status()`：返回当前状态（上限+进行中数量）
 - **优先级**：环境变量 `MASTER_URL`/`SLAVE_NAME`/`SLAVE_HOST`/`SERVER_PORT` 覆盖配置文件
 
 **MasterConfig** (server/master_config.py)
@@ -486,7 +497,7 @@ LolitaPoker.Tests/   # xUnit 单元测试项目
 **从服务器注册** (`slave_config.py`)
 - `SlaveConfig`：从服务器配置（名称、地址、端口、统计）
 - `SlaveRegistration`：注册客户端，启动后自动连接列表服务器
-- 10 秒心跳周期，发送 `active_games`/`connected_players`/`room_count`
+- 10 秒心跳周期，发送 `active_games`（房间数）/`connected_players`/`room_count`
 - 接收 `set_enabled` 指令，支持远程启停
 - 断线自动重连（5 秒间隔）
 

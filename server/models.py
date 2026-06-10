@@ -23,6 +23,7 @@ class CreateRoomPayload(BaseModel):
     """创建房间"""
     player_name: str = "玩家"
     is_public: bool = True
+    turn_timeout: int = 30
 
 
 class JoinRoomPayload(BaseModel):

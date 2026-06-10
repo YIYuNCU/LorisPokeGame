@@ -11,6 +11,7 @@ public partial class App : Application
 {
     private WhiteVoiceTtsService? _tts;
     private BgmServiceImpl? _bgm;
+    private SoundEffectServiceImpl? _soundEffects;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -30,10 +31,11 @@ public partial class App : Application
         // 初始化 TTS 和 BGM 服务
         _tts = new WhiteVoiceTtsService();
         _bgm = new BgmServiceImpl();
+        _soundEffects = new SoundEffectServiceImpl();
         Trace.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] TTS 可用: {_tts.IsAvailable}");
 
         // 创建并显示主窗口（注入 TTS + BGM）
-        var mainWindow = new DoudizhuMainWindow(_tts, _bgm);
+        var mainWindow = new DoudizhuMainWindow(_tts, _bgm, _soundEffects);
 
         // 启动背景音乐
         _bgm.PlayAsync("");
@@ -44,6 +46,7 @@ public partial class App : Application
     {
         _tts?.Dispose();
         _bgm?.Dispose();
+        _soundEffects?.Dispose();
         base.OnExit(e);
         Environment.Exit(0);
     }

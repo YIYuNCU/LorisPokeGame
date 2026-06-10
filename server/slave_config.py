@@ -146,12 +146,13 @@ class SlaveRegistration:
         stats = {}
         if self.get_stats:
             stats = self.get_stats()
-            self.config.active_games = stats.get("active_games", self.config.active_games)
+            self.config.room_count = stats.get("room_count", self.config.room_count)
+            self.config.connected_players = stats.get("connected_players", self.config.connected_players)
 
         await ws.send(json.dumps({
             "type": "heartbeat",
             "payload": {
-                "active_games": self.config.active_games,
+                "active_games": self.config.room_count,  # 向后兼容：active_games 现在代表房间数
                 "connected_players": self.config.connected_players,
                 "room_count": self.config.room_count,
             },
