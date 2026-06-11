@@ -99,6 +99,30 @@ Compress-Archive -Path publish/self-contained/* -DestinationPath publish/LolitaP
 - 自包含单文件模式下，`ExcludeFromSingleFile="true"` 配置可能不会自动复制外部资源文件夹，需要手动复制 `pics/` 目录
 - 框架依赖版本会自动包含 `pics/` 文件夹（通过 .csproj 中的 Content 配置）
 
+### VPet 插件发布
+
+```bash
+# 发布 VPet 插件到 9000_LolitaPoker 分发目录
+cd LolitaPoker.Plugin
+dotnet publish LolitaPoker.Plugin.csproj -p:PublishProfile=FolderProfile
+
+# 发布产物目录结构：
+# LolitaPoker.Plugin/9000_LolitaPoker/
+#   info.lps          - VPet MOD 元数据（含中英繁三语）
+#   icon.png          - Workshop 图标（需手动替换为正式图标）
+#   pics/             - 55 张卡牌 PNG 图片
+#   plugin/           - DLL 文件（LolitaPoker.Plugin.dll, LolitaPoker.Core.dll 及依赖）
+```
+
+**分发目录：**
+- `LolitaPoker.Plugin/9000_LolitaPoker/` - VPet 标准 MOD 分发目录，可直接复制到 VPet 的 `mod/` 下使用
+- 发布后 `plugin/` 目录仅包含 win-x64 运行时，已自动清理 .pdb、.deps.json、.xml 文件和非 Windows 运行时
+- `icon.png` 需手动替换为正式 Workshop 图标（建议 256×256，<500KB）
+
+**开发调试：**
+- `dotnet build LolitaPoker.sln` 仍会通过 `CopyToVPetMod` 将 DLL 复制到 VPet 的 `MOD/LolitaPoker/plugin/`
+- 插件启动时自动从 `MOD/LolitaPoker/pics/` 加载卡牌图片；若 `pics/` 不存在则使用程序化兜底绘制
+
 ## 游戏配置文件
 
 配置文件 `game_config.json` 位于应用运行目录下（`bin/Debug/net8.0-windows/` 或 `bin/Release/net8.0-windows/`），应用启动时自动加载，设置变更时自动保存。

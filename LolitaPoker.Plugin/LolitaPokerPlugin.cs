@@ -4,7 +4,9 @@
 // -----------------------------------------------------------------------
 
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
+using LolitaPoker.Core.Assets;
 using LolitaPoker.Core.Audio;
 using LolitaPoker.Core.Enums;
 using LolitaPoker.Core.Network;
@@ -31,6 +33,11 @@ public class LolitaPokerPlugin : MainPlugin
 
     public override void LoadPlugin()
     {
+        // 初始化卡牌图片（从插件所在目录的上一级 pics/ 加载）
+        var pluginDir = Path.GetDirectoryName(typeof(LolitaPokerPlugin).Assembly.Location)!;
+        var modRoot = Path.GetDirectoryName(pluginDir)!; // plugin/ → MOD/LolitaPoker/
+        CardImageProvider.Initialize(Path.Combine(modRoot, "pics"));
+
         // 订阅访客表事件
         MW.MutiPlayerHandle += OnMutiPlayerHandle;
         Debug.WriteLine("[LolitaPokerPlugin] 插件已加载，监听访客表事件");

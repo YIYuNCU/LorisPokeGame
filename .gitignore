@@ -98,3 +98,5 @@ desktop.ini
 *.bak
 *.tmp
 *.temp
+LolitaPoker.Plugin/9000_LolitaPoker/pics/*.png
+LolitaPoker.Plugin/9000_LolitaPoker/plugin/*.dll

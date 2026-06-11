@@ -11,13 +11,27 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <!-- 排除发布目录，不参与编译 -->
+  <ItemGroup>
+    <Compile Remove="9000_LolitaPoker\**" />
+    <EmbeddedResource Remove="9000_LolitaPoker\**" />
+    <None Remove="9000_LolitaPoker\**" />
+    <Page Remove="9000_LolitaPoker\**" />
+  </ItemGroup>
+
+  <!-- 发布时包含卡牌图片 -->
+  <ItemGroup>
+    <Content Include="..\pics\**\*.png" CopyToPublishDirectory="PreserveNewest"
+             Link="pics\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <!-- VPet 插件接口 -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\VPet\VPet-Simulator.Windows.Interface\VPet-Simulator.Windows.Interface.csproj" />
     <ProjectReference Include="..\LolitaPoker.Core\LolitaPoker.Core.csproj" />
   </ItemGroup>
 
-  <!-- 构建后复制到 VPet MOD 目录 -->
+  <!-- 构建后复制到 VPet MOD 目录（开发调试用） -->
   <PropertyGroup>
     <VPetModDir>..\..\..\VPet\VPet-Simulator.Windows\MOD\LolitaPoker</VPetModDir>
   </PropertyGroup>
